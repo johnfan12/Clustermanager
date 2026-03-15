@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPU 集群管理</title>
+<meta name="description" content="GPU 集群跳板机聚合管理 — 集群总览与实例管理">
+<style>
+/* ── 全局 ───────────────────────────────────────────── */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: #ffffff; color: #303133; font-size: 14px; line-height: 1.6;
+}
+a { color: #409eff; text-decoration: none; }
+button { cursor: pointer; border: none; outline: none; font-size: 14px; }
+
+/* ── 登录页 ─────────────────────────────────────────── */
+#login-page {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; background: #f7f8fa;
+}
+.login-card {
+    background: #fff; border-radius: 8px; padding: 40px 36px;
+    width: 380px; box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+}
+.login-card h2 {
+    text-align: center; margin-bottom: 28px; font-size: 20px;
+    color: #303133; font-weight: 600;
+}
+.form-group { margin-bottom: 18px; }
+.form-group label { display: block; margin-bottom: 6px; color: #606266; font-size: 13px; }
+.form-group input {
+    width: 100%; padding: 10px 12px; border: 1px solid #dcdfe6;
+    border-radius: 4px; font-size: 14px; transition: border-color .2s;
+}
+.form-group input:focus { border-color: #409eff; outline: none; }
+.login-btn {
+    width: 100%; padding: 11px; background: #409eff; color: #fff;
+    border-radius: 4px; font-size: 15px; font-weight: 500;
+    transition: background .2s;
+}
+.login-btn:hover { background: #66b1ff; }
+.login-btn:disabled { background: #a0cfff; cursor: not-allowed; }
+.login-error { color: #f56c6c; font-size: 13px; margin-top: 10px; text-align: center; }
+
+/* ── 主界面 ─────────────────────────────────────────── */
+#main-page { display: none; }
+
+.header {
+    background: #fff; border-bottom: 1px solid #e4e7ed;
+    padding: 0 24px; height: 56px;
+    display: flex; align-items: center; justify-content: space-between;
+}
+.header h1 { font-size: 17px; font-weight: 600; color: #303133; }
+.header-right { display: flex; align-items: center; gap: 16px; color: #606266; font-size: 13px; }
+.header-right .username { font-weight: 500; color: #303133; }
+.last-update { color: #909399; font-size: 12px; }
+.logout-btn {
+    padding: 5px 14px; background: #f5f7fa; border: 1px solid #dcdfe6;
+    border-radius: 4px; color: #606266; font-size: 13px; transition: all .2s;
+}
+.logout-btn:hover { border-color: #409eff; color: #409eff; }
+
+.container { max-width: 1200px; margin: 0 auto; padding: 20px 24px; }
+
+/* ── 区块卡片 ───────────────────────────────────────── */
+.section {
+    background: #fff; border: 1px solid #e4e7ed; border-radius: 6px;
+    margin-bottom: 20px; overflow: hidden;
+}
+.section-header {
+    padding: 14px 20px; border-bottom: 1px solid #e4e7ed;
+    display: flex; align-items: center; justify-content: space-between;
+    background: #fafafa;
+}
+.section-header h2 { font-size: 15px; font-weight: 600; color: #303133; }
+.section-summary { font-size: 13px; color: #909399; }
+
+/* ── 表格 ───────────────────────────────────────────── */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+thead th {
+    padding: 10px 16px; text-align: left; font-weight: 500;
+    color: #909399; font-size: 13px; background: #fafafa;
+    border-bottom: 1px solid #ebeef5; white-space: nowrap;
+}
+tbody td {
+    padding: 10px 16px; border-bottom: 1px solid #ebeef5;
+    font-size: 13px; color: #606266; vertical-align: middle;
+}
+tbody tr:hover { background: #ecf5ff; }
+tbody tr:last-child td { border-bottom: none; }
+
+/* ── 状态徽章 ───────────────────────────────────────── */
+.status-online { color: #67c23a; }
+.status-offline { color: #c0c4cc; }
+.status-running { color: #67c23a; font-weight: 500; }
+.status-stopped { color: #909399; }
+.gpu-zero { color: #f56c6c; font-weight: 600; }
+
+/* ── 按钮 ───────────────────────────────────────────── */
+.btn-primary {
+    padding: 5px 14px; background: #409eff; color: #fff;
+    border-radius: 4px; font-size: 12px; transition: background .2s;
+    display: inline-block;
+}
+.btn-primary:hover { background: #66b1ff; }
+.btn-small {
+    padding: 3px 10px; background: #f5f7fa; border: 1px solid #dcdfe6;
+    border-radius: 3px; font-size: 12px; color: #606266;
+    transition: all .2s;
+}
+.btn-small:hover { border-color: #409eff; color: #409eff; }
+
+/* ── 展开行（GPU 详情）──────────────────────────────── */
+.expand-row { display: none; }
+.expand-row.visible { display: table-row; }
+.expand-row td { padding: 8px 16px 8px 40px; background: #f7f8fa; }
+.gpu-grid {
+    display: flex; flex-wrap: wrap; gap: 8px;
+}
+.gpu-chip {
+    padding: 4px 10px; border-radius: 4px; font-size: 12px;
+    border: 1px solid #e4e7ed; background: #fff;
+}
+.gpu-chip.used { background: #fdf6ec; border-color: #e6a23c; color: #e6a23c; }
+.gpu-chip.free { background: #f0f9eb; border-color: #67c23a; color: #67c23a; }
+
+/* ── SSH & 密码列 ───────────────────────────────────── */
+.ssh-cell { display: flex; align-items: center; gap: 6px; }
+.ssh-cmd {
+    font-family: "SF Mono", "Fira Code", monospace; font-size: 12px;
+    background: #f5f7fa; padding: 3px 8px; border-radius: 3px;
+    color: #303133; white-space: nowrap;
+}
+.copy-btn {
+    padding: 2px 8px; font-size: 11px; background: none;
+    border: 1px solid #dcdfe6; border-radius: 3px; color: #909399;
+    transition: all .2s;
+}
+.copy-btn:hover { border-color: #409eff; color: #409eff; }
+.pwd-cell { display: flex; align-items: center; gap: 6px; }
+.pwd-toggle {
+    background: none; border: none; font-size: 14px; color: #909399;
+    cursor: pointer; padding: 0 4px;
+}
+.pwd-toggle:hover { color: #409eff; }
+
+/* ── 空状态 ─────────────────────────────────────────── */
+.empty-state {
+    text-align: center; padding: 40px 20px; color: #c0c4cc; font-size: 14px;
+}
+
+/* ── 可点击行 ───────────────────────────────────────── */
+.clickable-row { cursor: pointer; }
+.clickable-row td:first-child::before {
+    content: "▶"; margin-right: 6px; font-size: 10px;
+    color: #c0c4cc; transition: transform .2s; display: inline-block;
+}
+.clickable-row.expanded td:first-child::before {
+    transform: rotate(90deg);
+}
+</style>
+</head>
+<body>
+
+<!-- ═══ 登录页 ═══════════════════════════════════════ -->
+<div id="login-page">
+    <div class="login-card">
+        <h2>GPU 集群管理</h2>
+        <div class="form-group">
+            <label for="login-username">用户名</label>
+            <input type="text" id="login-username" placeholder="请输入用户名" autocomplete="username">
+        </div>
+        <div class="form-group">
+            <label for="login-password">密码</label>
+            <input type="password" id="login-password" placeholder="请输入密码" autocomplete="current-password">
+        </div>
+        <button class="login-btn" id="login-btn" onclick="doLogin()">登 录</button>
+        <div class="login-error" id="login-error"></div>
+    </div>
+</div>
+
+<!-- ═══ 主界面 ═══════════════════════════════════════ -->
+<div id="main-page">
+    <!-- 顶部 Header -->
+    <div class="header">
+        <h1>GPU 集群管理</h1>
+        <div class="header-right">
+            <span class="last-update" id="last-update"></span>
+            <span>👤 <span class="username" id="header-username"></span></span>
+            <button class="logout-btn" onclick="doLogout()">退出</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- 区块一：集群总览 -->
+        <div class="section">
+            <div class="section-header">
+                <h2>集群总览</h2>
+                <span class="section-summary" id="cluster-summary">加载中…</span>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>节点名称</th>
+                            <th>状态</th>
+                            <th>GPU 空闲/总数</th>
+                            <th>GPU 型号</th>
+                            <th>运行实例数</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="cluster-tbody">
+                        <tr><td colspan="6" class="empty-state">加载中…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 区块二：我的实例 -->
+        <div class="section">
+            <div class="section-header">
+                <h2>我的实例</h2>
+                <span class="section-summary" id="instance-summary">加载中…</span>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>节点</th>
+                            <th>实例名</th>
+                            <th>GPU 数</th>
+                            <th>内存</th>
+                            <th>镜像</th>
+                            <th>状态</th>
+                            <th>SSH 连接</th>
+                            <th>密码</th>
+                            <th>到期时间</th>
+                        </tr>
+                    </thead>
+                    <tbody id="instance-tbody">
+                        <tr><td colspan="9" class="empty-state">加载中…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════
+   全局状态
+   ═══════════════════════════════════════════════════════ */
+const API = '';
+let token     = localStorage.getItem('token') || '';
+let username  = localStorage.getItem('username') || '';
+let refreshTimer = null;
+
+/* ─── 初始化 ─────────────────────────────────────────── */
+(function init() {
+    if (token) {
+        showMain();
+    } else {
+        showLogin();
+    }
+    // 回车登录
+    document.getElementById('login-password').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') doLogin();
+    });
+    document.getElementById('login-username').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') document.getElementById('login-password').focus();
+    });
+})();
+
+/* ═══════════════════════════════════════════════════════
+   登录 / 退出
+   ═══════════════════════════════════════════════════════ */
+async function doLogin() {
+    const user = document.getElementById('login-username').value.trim();
+    const pass = document.getElementById('login-password').value;
+    const errEl = document.getElementById('login-error');
+    const btn = document.getElementById('login-btn');
+    errEl.textContent = '';
+
+    if (!user || !pass) { errEl.textContent = '请填写用户名和密码'; return; }
+
+    btn.disabled = true;
+    btn.textContent = '登录中…';
+
+    try {
+        const body = new URLSearchParams({ username: user, password: pass });
+        const resp = await fetch(API + '/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body,
+        });
+        if (!resp.ok) {
+            const d = await resp.json().catch(() => ({}));
+            throw new Error(d.detail || '登录失败');
+        }
+        const data = await resp.json();
+        token = data.access_token;
+        username = data.username;
+        localStorage.setItem('token', token);
+        localStorage.setItem('username', username);
+        showMain();
+    } catch (e) {
+        errEl.textContent = e.message;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '登 录';
+    }
+}
+
+function doLogout() {
+    token = '';
+    username = '';
+    localStorage.removeItem('token');
+    localStorage.removeItem('username');
+    if (refreshTimer) clearInterval(refreshTimer);
+    showLogin();
+}
+
+function showLogin() {
+    document.getElementById('login-page').style.display = 'flex';
+    document.getElementById('main-page').style.display = 'none';
+}
+
+function showMain() {
+    document.getElementById('login-page').style.display = 'none';
+    document.getElementById('main-page').style.display = 'block';
+    document.getElementById('header-username').textContent = username;
+    loadAll();
+    // 30 秒自动刷新
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = setInterval(loadAll, 30000);
+}
+
+/* ═══════════════════════════════════════════════════════
+   数据加载
+   ═══════════════════════════════════════════════════════ */
+async function loadAll() {
+    await Promise.all([loadCluster(), loadMyInstances()]);
+    updateTime();
+}
+
+function updateTime() {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    const ss = String(now.getSeconds()).padStart(2, '0');
+    document.getElementById('last-update').textContent = '上次更新: ' + hh + ':' + mm + ':' + ss;
+}
+
+function authHeaders() {
+    return { 'Authorization': 'Bearer ' + token };
+}
+
+/* ─── 集群总览 ───────────────────────────────────────── */
+async function loadCluster() {
+    try {
+        const resp = await fetch(API + '/api/cluster/status', { headers: authHeaders() });
+        if (resp.status === 401) { doLogout(); return; }
+        const data = await resp.json();
+        renderCluster(data);
+    } catch (e) {
+        console.error('集群状态加载失败', e);
+    }
+}
+
+function renderCluster(data) {
+    const s = data.summary;
+    document.getElementById('cluster-summary').textContent =
+        '总 GPU ' + s.total_gpu + ' 张 · 空闲 ' + s.free_gpu + ' 张 · 运行实例 ' + s.total_instances + ' 个';
+
+    const tbody = document.getElementById('cluster-tbody');
+    if (!data.nodes || data.nodes.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">暂无节点数据</td></tr>';
+        return;
+    }
+
+    let html = '';
+    data.nodes.forEach(function(n) {
+        const statusCls = n.online ? 'status-online' : 'status-offline';
+        const statusTxt = n.online ? '● 在线' : '○ 离线';
+        const gpuFreeStr = n.gpu_free + '/' + n.gpu_total;
+        const gpuCls = (n.gpu_free === 0 && n.online) ? 'gpu-zero' : '';
+        const webUrl = n.web_url ? (n.web_url + '?token=' + encodeURIComponent(token)) : '';
+
+        html += '<tr class="clickable-row" data-node="' + n.node_id + '" onclick="toggleExpand(this)">';
+        html += '<td>' + escHtml(n.name) + '</td>';
+        html += '<td class="' + statusCls + '">' + statusTxt + '</td>';
+        html += '<td class="' + gpuCls + '">' + gpuFreeStr + '</td>';
+        html += '<td>' + escHtml(n.gpu_model) + '</td>';
+        html += '<td>' + n.instance_count + '</td>';
+        html += '<td>';
+        if (webUrl) {
+            html += '<a class="btn-primary" href="' + escHtml(webUrl) + '" target="_blank" onclick="event.stopPropagation()">进入管理</a>';
+        } else {
+            html += '<span style="color:#c0c4cc">—</span>';
+        }
+        html += '</td></tr>';
+
+        // 展开行 — GPU 详情
+        html += '<tr class="expand-row" data-expand="' + n.node_id + '">';
+        html += '<td colspan="6">';
+        if (n.gpus && n.gpus.length > 0) {
+            html += '<div class="gpu-grid">';
+            n.gpus.forEach(function(g) {
+                const cls = g.status === 'free' ? 'free' : 'used';
+                const label = 'GPU ' + g.index + ': ' + (g.status === 'free' ? '空闲' : (g.allocated_to || '占用中'));
+                html += '<span class="gpu-chip ' + cls + '">' + escHtml(label) + '</span>';
+            });
+            html += '</div>';
+        } else {
+            html += '<span style="color:#c0c4cc">无 GPU 详情数据</span>';
+        }
+        html += '</td></tr>';
+    });
+
+    tbody.innerHTML = html;
+}
+
+function toggleExpand(row) {
+    const nodeId = row.getAttribute('data-node');
+    const expandRow = document.querySelector('tr[data-expand="' + nodeId + '"]');
+    if (!expandRow) return;
+    const isVisible = expandRow.classList.contains('visible');
+    expandRow.classList.toggle('visible');
+    row.classList.toggle('expanded');
+}
+
+/* ─── 我的实例 ───────────────────────────────────────── */
+async function loadMyInstances() {
+    try {
+        const resp = await fetch(API + '/api/cluster/my_instances', { headers: authHeaders() });
+        if (resp.status === 401) { doLogout(); return; }
+        const data = await resp.json();
+        renderInstances(data);
+    } catch (e) {
+        console.error('实例加载失败', e);
+    }
+}
+
+function renderInstances(data) {
+    const instances = data.instances || [];
+    const running = instances.filter(function(i) { return i.status === 'running'; });
+    document.getElementById('instance-summary').textContent = '共 ' + running.length + ' 个运行中';
+
+    const tbody = document.getElementById('instance-tbody');
+    if (instances.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" class="empty-state">暂无运行中的实例</td></tr>';
+        return;
+    }
+
+    let html = '';
+    instances.forEach(function(inst, idx) {
+        const stCls = inst.status === 'running' ? 'status-running' : 'status-stopped';
+        const stTxt = inst.status === 'running' ? '运行中' : '已停止';
+        const sshCmd = inst.ssh_cmd || inst.ssh_command || '—';
+        const pwd = inst.password || inst.ssh_password || '';
+        const expire = inst.expire_time || inst.expires_at || '—';
+        const gpuCount = inst.gpu_count || inst.gpu_num || '—';
+        const mem = inst.memory || inst.mem || '—';
+        const image = inst.image || '—';
+        const name = inst.name || inst.instance_name || '—';
+        const pwdId = 'pwd-' + idx;
+
+        html += '<tr>';
+        html += '<td>' + escHtml(inst.node_name || inst.node_id || '—') + '</td>';
+        html += '<td>' + escHtml(name) + '</td>';
+        html += '<td>' + escHtml(String(gpuCount)) + '</td>';
+        html += '<td>' + escHtml(String(mem)) + '</td>';
+        html += '<td>' + escHtml(image) + '</td>';
+        html += '<td class="' + stCls + '">' + stTxt + '</td>';
+        html += '<td>';
+        if (sshCmd !== '—') {
+            html += '<div class="ssh-cell">';
+            html += '<span class="ssh-cmd">' + escHtml(sshCmd) + '</span>';
+            html += '<button class="copy-btn" onclick="copyText(\'' + escJs(sshCmd) + '\', this)">📋</button>';
+            html += '</div>';
+        } else {
+            html += '—';
+        }
+        html += '</td>';
+        html += '<td>';
+        if (pwd) {
+            html += '<div class="pwd-cell">';
+            html += '<span id="' + pwdId + '">****</span>';
+            html += '<button class="pwd-toggle" onclick="togglePwd(\'' + pwdId + '\', \'' + escJs(pwd) + '\')">👁</button>';
+            html += '</div>';
+        } else {
+            html += '—';
+        }
+        html += '</td>';
+        html += '<td>' + escHtml(String(expire)) + '</td>';
+        html += '</tr>';
+    });
+
+    tbody.innerHTML = html;
+}
+
+/* ═══════════════════════════════════════════════════════
+   工具函数
+   ═══════════════════════════════════════════════════════ */
+function escHtml(s) {
+    var d = document.createElement('div');
+    d.appendChild(document.createTextNode(s));
+    return d.innerHTML;
+}
+
+function escJs(s) {
+    return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
+}
+
+function copyText(text, btn) {
+    navigator.clipboard.writeText(text).then(function() {
+        var orig = btn.textContent;
+        btn.textContent = '✓';
+        setTimeout(function() { btn.textContent = orig; }, 1500);
+    }).catch(function() {
+        // fallback
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        var orig = btn.textContent;
+        btn.textContent = '✓';
+        setTimeout(function() { btn.textContent = orig; }, 1500);
+    });
+}
+
+function togglePwd(id, realPwd) {
+    var el = document.getElementById(id);
+    if (el.textContent === '****') {
+        el.textContent = realPwd;
+    } else {
+        el.textContent = '****';
+    }
+}
+</script>
+</body>
+</html>

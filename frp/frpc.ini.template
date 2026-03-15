@@ -1,0 +1,18 @@
+[common]
+server_addr = your-vps-public-ip
+server_port = 7000
+token = your-frp-secret-token
+
+# 节点管理 API（供聚合服务调用）
+[gpu-nodeX-api]
+type = tcp
+local_ip   = 127.0.0.1
+local_port = 8888
+remote_port = 1888X          # 节点1用18881，节点2用18882，以此类推
+
+# 节点 SSH（方便运维直连）
+[gpu-nodeX-ssh]
+type = tcp
+local_ip   = 127.0.0.1
+local_port = 22
+remote_port = 1002X          # 节点1用10021，节点2用10022，以此类推
