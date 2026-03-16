@@ -5,6 +5,7 @@ set -e
 
 FRP_VERSION="0.58.1"
 FRP_ARCH="linux_amd64"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "=== Installing FRP v${FRP_VERSION} ==="
 
@@ -21,7 +22,6 @@ rm -rf "frp_${FRP_VERSION}_${FRP_ARCH}"
 sudo mkdir -p /etc/frp
 
 # 安装 systemd 服务
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sudo cp "${SCRIPT_DIR}/frps.service" /etc/systemd/system/
 sudo cp "${SCRIPT_DIR}/frpc-visitors.service" /etc/systemd/system/
 
