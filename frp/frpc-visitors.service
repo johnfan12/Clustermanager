@@ -1,0 +1,21 @@
+[Unit]
+Description=FRP Client for GPU Container Visitors (VPS access)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Restart=always
+RestartSec=5
+
+# frpc 可执行文件路径
+ExecStart=/usr/local/bin/frpc -c /etc/frp/frpc-visitors.ini
+
+# 支持热重载
+ExecReload=/bin/kill -HUP $MAINPID
+
+# 确保配置文件存在
+ExecStartPre=/bin/sh -c 'mkdir -p /etc/frp && touch /etc/frp/frpc-visitors.ini'
+
+[Install]
+WantedBy=multi-user.target

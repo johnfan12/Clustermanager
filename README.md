@@ -37,38 +37,23 @@
 
 ## 1. VPS 部署步骤
 
-### 1.1 安装 frps
+### 1.1 安装 frps（使用一键脚本）
 
 ```bash
-# 下载 frp（以 v0.52.3 为例）
-wget https://github.com/fatedier/frp/releases/download/v0.52.3/frp_0.52.3_linux_amd64.tar.gz
-tar -xzf frp_0.52.3_linux_amd64.tar.gz
-sudo cp frp_0.52.3_linux_amd64/frps /usr/local/bin/
-sudo mkdir -p /etc/frp
-sudo cp frp/frps.ini /etc/frp/frps.ini
+cd frp
+sudo bash install.sh
 ```
 
-创建 systemd 服务 `/etc/systemd/system/frps.service`：
-
-```ini
-[Unit]
-Description=frp Server
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/frps -c /etc/frp/frps.ini
-Restart=on-failure
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
-```
-
+编辑配置：
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable frps
-sudo systemctl start frps
+sudo nano /etc/frp/frps.ini
+# 修改 token 为你自己的值
+```
+
+启动服务：
+```bash
+sudo systemctl enable --now frps
+sudo systemctl enable --now frpc-visitors
 ```
 
 ### 1.2 部署聚合服务
@@ -79,9 +64,23 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# 修改 config.py 中的配置项（JWT_SECRET、节点列表、admin_token 等）
+# 复制并编辑 .env 配置文件
+cp .env.copy .env
+nano .env
+```
 
-# 启动服务
+至少修改以下配置：
+
+| 配置项 | 说明 | 示例 |
+|--------|------|------|
+| `JWT_SECRET` | 与所有节点保持一致 | `your-strong-secret` |
+| `ADMIN_PASSWORD` | 跳板机管理员密码 | `your-admin-password` |
+| `FRP_TOKEN` | 与 frps.ini 一致 | `your-frp-token` |
+| `VPS_PUBLIC_IP` | VPS 公网 IP | `1.2.3.4` |
+| `NODES_JSON` | 节点列表（可选） | `{"node1": {...}}` |
+
+启动服务：
+```bash
 chmod +x start.sh
 ./start.sh
 
@@ -120,50 +119,72 @@ sudo cp frp_0.52.3_linux_amd64/frpc /usr/local/bin/
 sudo mkdir -p /etc/frp
 ```
 
-### 2.2 配置 frpc.ini
+### 2.2 配置 frpc（使用一键脚本）
 
-以 `frp/frpc.ini.template` 为基础，替换以下内容：
-
-| 占位符 | 说明 |
-|--------|------|
-| `your-vps-public-ip` | VPS 公网 IP |
-| `your-frp-secret-token` | 与 frps.ini 中相同的 token |
-| `nodeX` | 节点编号，如 `node1` |
-| `1888X` | API 端口，如 `18881` |
-| `1002X` | SSH 端口，如 `10021` |
+在 GPU 节点上：
 
 ```bash
-sudo cp frpc.ini /etc/frp/frpc.ini
+cd Servermanager/frp   # 进入 Servermanager 的 frp 目录
+sudo bash install.sh
 ```
 
-创建 systemd 服务 `/etc/systemd/system/frpc.service`：
-
-```ini
-[Unit]
-Description=frp Client
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/frpc -c /etc/frp/frpc.ini
-Restart=on-failure
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
-```
-
+编辑配置：
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable frpc
-sudo systemctl start frpc
+# 编辑 Servermanager 的 .env 文件
+cd ..
+nano .env
 ```
+
+关键配置：
+```env
+FRP_ENABLED=true
+FRP_SERVER_ADDR=your-vps-public-ip
+FRP_SERVER_PORT=7000
+FRP_TOKEN=your-frp-secret-token
+```
+
+启动服务：
+```bash
+sudo systemctl enable --now frpc-containers
+```
+
+> **注意**：Servermanager 和 Clustermanager 的 `JWT_SECRET` 必须一致，这是 SSO 的前提。
 
 ---
 
-## 3. admin_token 的获取方法
+## 3. 节点配置（.env 或 config.py）
 
-`config.py` 中每个节点的 `admin_token` 需要从对应节点的 `gpu_manager` 获取：
+### 3.1 使用 .env 文件（推荐）
+
+编辑 `.env` 文件，使用 JSON 格式配置节点：
+
+```env
+NODES_JSON='{
+    "node1": {
+        "name": "节点1 · A100 × 8",
+        "api": "http://localhost:18881",
+        "admin_token": "从节点获取的jwt-token",
+        "gpu_count": 8,
+        "gpu_model": "A100 80G"
+    },
+    "node2": {
+        "name": "节点2 · RTX3090 × 4",
+        "api": "http://localhost:18882",
+        "admin_token": "从节点获取的jwt-token",
+        "gpu_count": 4,
+        "gpu_model": "RTX 3090 24G"
+    }
+}'
+
+NODE_WEB_URLS_JSON='{
+    "node1": "http://your-vps-ip:18881",
+    "node2": "http://your-vps-ip:18882"
+}'
+```
+
+### 3.2 admin_token 的获取方法
+
+`admin_token` 需要从对应节点的 Servermanager 获取：
 
 ```bash
 # 在 VPS 上（frp 穿透已建立后）
@@ -172,19 +193,19 @@ curl -X POST http://localhost:18881/api/auth/login \
   -d "username=admin&password=节点管理员密码"
 ```
 
-返回的 `access_token` 即为该节点的 `admin_token`，填入 `config.py` 对应节点配置中。
+返回的 `access_token` 即为该节点的 `admin_token`，填入 `.env` 或 `config.py` 对应节点配置中。
 
 ---
 
 ## 4. SSO 原理说明
 
-本项目与各 GPU 节点的 `gpu_manager` 共享同一个 `JWT_SECRET`。
+本项目与各 GPU 节点的 Servermanager 共享同一个 `JWT_SECRET`。
 
 - 用户在跳板机登录后，跳板机使用共享密钥签发 JWT token
 - 前端点击"进入管理"时，URL 末尾携带 `?token=xxx`
-- 节点 `gpu_manager` 使用相同密钥验证 token，无需再次登录
+- 节点 Servermanager 使用相同密钥验证 token，无需再次登录
 
-**关键操作**：确保所有节点 `gpu_manager` 的 `JWT_SECRET` 配置与本项目 `config.py` 中的 `JWT_SECRET` 完全一致。
+**关键操作**：确保所有节点的 `.env` 文件中 `JWT_SECRET` 与 Clustermanager 的 `.env` 完全一致。
 
 ---
 
@@ -210,4 +231,27 @@ curl -X POST http://localhost:18881/api/auth/login \
 ### Q: 管理员 token 过期
 - `admin_token` 是长期 token，但仍可能过期
 - 过期后重新调用节点 `/api/auth/login` 获取新 token
-- 更新 `config.py` 并重启聚合服务
+- 更新 `.env` 或 `config.py` 并重启聚合服务
+
+### Q: 如何通过 FRP 访问容器 SSH
+容器创建后，Clustermanager 会自动同步 FRP visitor 配置。获取访问方式：
+
+```bash
+# 查询所有容器的访问映射
+curl -H "Authorization: Bearer TOKEN" http://localhost:8000/api/frp/containers
+
+# 查询单个实例的连接信息
+curl -H "Authorization: Bearer TOKEN" \
+  http://localhost:8000/api/cluster/instances/node1_gpu_user_xxx/connect
+```
+
+或通过 Web 界面查看。
+
+### Q: 如何手动同步 FRP 配置
+```bash
+# 在 Servermanager 节点上
+curl -H "Authorization: Bearer TOKEN" http://localhost:8888/api/frp/sync
+
+# 在 VPS 上
+curl -H "Authorization: Bearer TOKEN" http://localhost:8000/api/frp/sync
+```

@@ -312,3 +312,125 @@ async def startup_event() -> None:
     logger.info("已配置 %d 个节点:", len(config.NODES))
     for nid, ncfg in config.NODES.items():
         logger.info("  %s: %s → %s", nid, ncfg["name"], ncfg["api"])
+
+    # 同步 FRP visitor 配置
+    try:
+        from frp_manager import frp_visitor_manager
+        frp_visitor_manager.update_config()
+        logger.info("FRP visitor 配置已同步")
+    except Exception as exc:
+        logger.error("FRP visitor 配置同步失败: %s", exc)
+
+
+# ── FRP 容器访问管理 ─────────────────────────────────────────────────────────
+
+@app.get("/api/frp/containers")
+async def list_frp_containers(
+    user: dict = Depends(get_current_user),
+) -> dict[str, Any]:
+    """返回所有容器的 FRP 访问映射（管理员功能）."""
+    del user
+    from frp_manager import frp_visitor_manager
+
+    mappings = frp_visitor_manager.get_all_mappings()
+    return {
+        "success": True,
+        "count": len(mappings),
+        "containers": mappings,
+    }
+
+
+@app.get("/api/frp/containers/{container_name}")
+async def get_frp_container_access(
+    container_name: str,
+    user: dict = Depends(get_current_user),
+) -> dict[str, Any]:
+    """返回单个容器的 FRP 访问信息."""
+    del user
+    from frp_manager import frp_visitor_manager
+
+    mappings = frp_visitor_manager.get_all_mappings()
+    if container_name not in mappings:
+        raise HTTPException(status_code=404, detail="Container not found")
+
+    return {
+        "success": True,
+        "container": mappings[container_name],
+    }
+
+
+@app.post("/api/frp/sync")
+async def sync_frp_config(
+    user: dict = Depends(get_current_user),
+) -> dict[str, Any]:
+    """手动触发 FRP 配置同步."""
+    del user
+    from frp_manager import frp_visitor_manager
+
+    success = frp_visitor_manager.update_config()
+    return {
+        "success": success,
+        "message": "FRP config synced" if success else "Failed to sync",
+    }
+
+
+@app.post("/api/cluster/instances/{instance_id}/connect")
+async def get_instance_connect_info(
+    instance_id: str,
+    user: dict = Depends(get_current_user),
+) -> dict[str, Any]:
+    """获取实例的连接信息（包括 FRP 访问地址）."""
+    from frp_manager import frp_visitor_manager
+
+    # 解析 instance_id 格式: node1_gpu_user_username_xxx
+    if "_" not in instance_id:
+        raise HTTPException(status_code=400, detail="Invalid instance ID format")
+
+    parts = instance_id.split("_", 1)
+    node_id = parts[0]
+    container_name = parts[1] if len(parts) > 1 else instance_id
+
+    if node_id not in config.NODES:
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    # 从节点获取实例详情
+    node = config.NODES[node_id]
+    try:
+        headers = {"Authorization": f"Bearer {node['admin_token']}"}
+        async with httpx.AsyncClient() as client:
+            # 获取实例列表
+            resp = await client.get(
+                f"{node['api']}/api/instances",
+                headers=headers,
+                timeout=5.0,
+            )
+            resp.raise_for_status()
+            instances = resp.json()
+
+            # 找到目标实例
+            target = None
+            for inst in instances:
+                if inst.get("container_name") == container_name:
+                    target = inst
+                    break
+
+            if not target:
+                raise HTTPException(status_code=404, detail="Instance not found")
+
+            # 获取 FRP 访问信息
+            mappings = frp_visitor_manager.get_all_mappings()
+            access_info = mappings.get(container_name, {})
+
+            return {
+                "success": True,
+                "instance": target,
+                "access": {
+                    "frp_ssh": access_info.get("access_url"),
+                    "vps_port": access_info.get("vps_port"),
+                    "local_ssh": f"ssh://root@<node-local-ip>:{target.get('ssh_port', 'unknown')}",
+                },
+            }
+
+    except httpx.HTTPError as exc:
+        logger.error("Failed to connect to node %s: %s", node_id, exc)
+        raise HTTPException(status_code=503, detail=f"Node unavailable: {exc}")
