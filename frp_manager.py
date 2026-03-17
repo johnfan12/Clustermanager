@@ -175,11 +175,63 @@ class FrpVisitorManager:
             # 重载配置
             self._reload_frpc()
 
+            # 同步 VPS 访问信息到各节点
+            self._sync_vps_access_to_nodes(containers)
+
             return True
 
         except Exception as exc:
             LOGGER.error("Failed to update visitor config: %s", exc)
             return False
+
+    def _sync_vps_access_to_nodes(self, containers: list[dict[str, Any]]) -> None:
+        """将 VPS 访问信息同步到各个 Servermanager 节点."""
+        import httpx
+
+        for container in containers:
+            name = container.get("container_name", "")
+            node_id = container.get("node_id", "")
+
+            if not name or not node_id:
+                continue
+
+            # 获取分配的端口
+            port = self._allocated_ports.get(name)
+            if port is None:
+                continue
+
+            # 获取节点配置
+            node_cfg = config.NODES.get(node_id, {})
+            api_base = node_cfg.get("api", "")
+            admin_token = node_cfg.get("admin_token", "")
+
+            if not api_base or not admin_token:
+                continue
+
+            # 构建 VPS 访问信息
+            vps_info = {
+                "vps_port": port,
+                "vps_ip": config.VPS_PUBLIC_IP,
+                "ssh_cmd": f"ssh -p {port} root@{config.VPS_PUBLIC_IP}",
+            }
+
+            try:
+                headers = {"Authorization": f"Bearer {admin_token}"}
+                response = httpx.post(
+                    f"{api_base}/api/instances/{name}/vps-access",
+                    headers=headers,
+                    json=vps_info,
+                    timeout=5.0,
+                )
+                if response.status_code == 200:
+                    LOGGER.debug("Synced VPS access info for %s to node %s", name, node_id)
+                else:
+                    LOGGER.warning(
+                        "Failed to sync VPS access for %s: %s %s",
+                        name, response.status_code, response.text
+                    )
+            except Exception as exc:
+                LOGGER.warning("Failed to sync VPS access for %s: %s", name, exc)
 
     def _reload_frpc(self) -> None:
         """热重载 frpc."""
