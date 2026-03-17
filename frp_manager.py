@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import configparser
+import hashlib
 import logging
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +35,8 @@ class FrpVisitorManager:
         self.enabled = FRP_ENABLED
         self.config_file = Path(FRP_CONFIG_FILE)
         self._allocated_ports: dict[str, int] = {}  # container_name -> port
+        self._last_sync_signature: str | None = None
+        self._last_sync_at: float = 0.0
 
     def fetch_container_secrets(self) -> list[dict[str, Any]]:
         """从所有节点获取容器的 FRP 连接信息."""
@@ -85,8 +89,6 @@ class FrpVisitorManager:
             return preferred_port
 
         # 计算一个确定的端口（基于容器名哈希）
-        import hashlib
-
         hash_value = int(hashlib.md5(container_name.encode()).hexdigest(), 16)
         port_range = FRP_CONTAINER_PORT_RANGE[1] - FRP_CONTAINER_PORT_RANGE[0]
         port = FRP_CONTAINER_PORT_RANGE[0] + (hash_value % port_range)
@@ -193,7 +195,17 @@ class FrpVisitorManager:
             containers = self.fetch_container_secrets()
             LOGGER.info("Fetched %d containers from nodes", len(containers))
 
+            signature = self._build_sync_signature(containers)
             existing_ports = self._load_existing_visitor_ports()
+
+            if (
+                signature == self._last_sync_signature
+                and existing_ports
+                and time.time() - self._last_sync_at < 10
+            ):
+                self._allocated_ports = dict(existing_ports)
+                return True
+
             self._allocated_ports = {}
 
             # 构建配置
@@ -215,6 +227,8 @@ class FrpVisitorManager:
 
             # 同步 VPS 访问信息到各节点
             self._sync_vps_access_to_nodes(containers)
+            self._last_sync_signature = signature
+            self._last_sync_at = time.time()
 
             return True
 
@@ -288,10 +302,37 @@ class FrpVisitorManager:
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pass
 
+        try:
+            result = subprocess.run(
+                ["systemctl", "restart", "frpc-visitors"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0:
+                LOGGER.info("Reload unsupported; restarted frpc-visitors instead")
+                return
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
         LOGGER.warning(
-            "Could not reload frpc-visitors automatically. "
-            "Please ensure 'systemctl reload frpc-visitors' works."
+            "Could not reload or restart frpc-visitors automatically. "
+            "Please ensure the service can be managed via systemctl."
         )
+
+    def _build_sync_signature(self, containers: list[dict[str, Any]]) -> str:
+        """构建容器列表签名，用于避免重复刷新相同 visitor 配置."""
+        normalized = sorted(
+            (
+                str(c.get("container_name", "")),
+                str(c.get("secret_key", "")),
+                str(c.get("node_id", "")),
+            )
+            for c in containers
+            if c.get("container_name") and c.get("secret_key")
+        )
+        payload = "|".join(":".join(item) for item in normalized)
+        return hashlib.sha256(payload.encode()).hexdigest()
 
     def get_container_access_url(self, container_name: str) -> str | None:
         """获取容器的访问地址."""
