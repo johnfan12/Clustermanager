@@ -83,8 +83,8 @@ class FrpVisitorManager:
         if container_name in self._allocated_ports:
             return self._allocated_ports[container_name]
 
-        # 如果有首选端口（从配置文件读取），且未被其他容器占用，优先使用
-        if preferred_port and not self._is_port_in_use(preferred_port):
+        # 如果有首选端口（从配置文件读取），优先复用当前容器自己的旧端口
+        if preferred_port:
             self._allocated_ports[container_name] = preferred_port
             return preferred_port
 
