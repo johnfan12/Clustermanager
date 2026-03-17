@@ -398,7 +398,7 @@ function renderCluster(data) {
         html += '<td>' + n.instance_count + '</td>';
         html += '<td>';
         if (webUrl) {
-            html += '<a class="btn-primary" href="' + escHtml(webUrl) + '" target="_blank" onclick="event.stopPropagation()">进入管理</a>';
+            html += '<a class="btn-primary" href="' + webUrl + '" target="_blank" onclick="event.stopPropagation()">进入管理</a>';
         } else {
             html += '<span style="color:#c0c4cc">—</span>';
         }
