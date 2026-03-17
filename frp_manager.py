@@ -117,12 +117,35 @@ class FrpVisitorManager:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             return sock.connect_ex(("127.0.0.1", port)) == 0
 
+    def _load_existing_visitor_ports(self) -> dict[str, int]:
+        """从当前 visitor 配置文件读取容器到 VPS 端口的映射."""
+        if not self.config_file.exists():
+            return {}
+
+        config = configparser.ConfigParser()
+        config.read(self.config_file)
+
+        ports: dict[str, int] = {}
+        for section in config.sections():
+            if not section.startswith("visitor-"):
+                continue
+
+            container_name = section.removeprefix("visitor-")
+            bind_port = config.getint(section, "bind_port", fallback=0)
+            if container_name and bind_port:
+                ports[container_name] = bind_port
+
+        return ports
+
     def build_visitor_config(
-        self, containers: list[dict[str, Any]]
+        self,
+        containers: list[dict[str, Any]],
+        existing_ports: dict[str, int] | None = None,
     ) -> configparser.ConfigParser:
         """构建 visitor 配置."""
         config = configparser.ConfigParser()
         setattr(config, "optionxform", str)
+        existing_ports = existing_ports or {}
 
         # 基础配置
         config["common"] = {
@@ -141,7 +164,7 @@ class FrpVisitorManager:
                 continue
 
             # 分配端口
-            port = self.allocate_port(name)
+            port = self.allocate_port(name, preferred_port=existing_ports.get(name))
 
             section_name = f"visitor-{name}"
             config[section_name] = {
@@ -170,8 +193,11 @@ class FrpVisitorManager:
             containers = self.fetch_container_secrets()
             LOGGER.info("Fetched %d containers from nodes", len(containers))
 
+            existing_ports = self._load_existing_visitor_ports()
+            self._allocated_ports = {}
+
             # 构建配置
-            config = self.build_visitor_config(containers)
+            config = self.build_visitor_config(containers, existing_ports)
 
             # 确保目录存在
             self.config_file.parent.mkdir(parents=True, exist_ok=True)
@@ -269,29 +295,37 @@ class FrpVisitorManager:
 
     def get_container_access_url(self, container_name: str) -> str | None:
         """获取容器的访问地址."""
-        if container_name not in self._allocated_ports:
+        port = self._load_existing_visitor_ports().get(container_name)
+        if port is None:
             return None
 
-        port = self._allocated_ports[container_name]
         return f"ssh://root@{VPS_PUBLIC_IP}:{port}"
 
     def get_all_mappings(self) -> dict[str, dict[str, Any]]:
         """获取所有容器的访问映射."""
-        # 刷新配置
+        self.update_config()
+
         containers = self.fetch_container_secrets()
+        visitor_ports = self._load_existing_visitor_ports()
 
         mappings = {}
         for c in containers:
             name = c.get("container_name", "")
-            if name:
-                port = self.allocate_port(name)
-                mappings[name] = {
-                    "node_id": c.get("node_id"),
-                    "node_name": c.get("node_name"),
-                    "ssh_port": c.get("ssh_port"),
-                    "vps_port": port,
-                    "access_url": f"ssh://root@{VPS_PUBLIC_IP}:{port}",
-                }
+            if not name:
+                continue
+
+            port = visitor_ports.get(name)
+            if port is None:
+                LOGGER.warning("Visitor port not ready for container %s", name)
+                continue
+
+            mappings[name] = {
+                "node_id": c.get("node_id"),
+                "node_name": c.get("node_name"),
+                "ssh_port": c.get("ssh_port"),
+                "vps_port": port,
+                "access_url": f"ssh://root@{VPS_PUBLIC_IP}:{port}",
+            }
 
         return mappings
 
