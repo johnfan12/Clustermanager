@@ -291,26 +291,26 @@ class FrpVisitorManager:
         """热重载 frpc."""
         try:
             result = subprocess.run(
-                ["systemctl", "reload", "frpc-visitors"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode == 0:
-                LOGGER.debug("Reloaded frpc-visitors via systemctl")
-                return
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            pass
-
-        try:
-            result = subprocess.run(
                 ["systemctl", "restart", "frpc-visitors"],
                 capture_output=True,
                 text=True,
                 timeout=10,
             )
             if result.returncode == 0:
-                LOGGER.info("Reload unsupported; restarted frpc-visitors instead")
+                LOGGER.info("Restarted frpc-visitors via systemctl")
+                return
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+        try:
+            result = subprocess.run(
+                ["systemctl", "reload", "frpc-visitors"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                LOGGER.info("Restart unavailable; reloaded frpc-visitors instead")
                 return
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pass
