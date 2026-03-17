@@ -46,6 +46,11 @@ JWT_SECRET: str = os.environ.get("JWT_SECRET", "change-this-secret")
 JWT_ALGORITHM: str = os.environ.get("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_HOURS: int = int(os.environ.get("JWT_EXPIRE_HOURS", "24"))
 
+# 服务间鉴权密钥 — 用于回写 Servermanager 的 VPS 访问信息
+INTERNAL_SERVICE_TOKEN: str = os.environ.get(
+    "INTERNAL_SERVICE_TOKEN", "change-this-internal-service-token"
+)
+
 # ============================================================================
 # 集群节点列表
 # api        — frp 穿透到 VPS 本地的地址
@@ -57,18 +62,18 @@ JWT_EXPIRE_HOURS: int = int(os.environ.get("JWT_EXPIRE_HOURS", "24"))
 
 NODES: dict = _load_nodes_from_env() or {
     "node1": {
-        "name":        "节点1 · A100 × 8",
-        "api":         "http://localhost:18881",
+        "name": "节点1 · A100 × 8",
+        "api": "http://localhost:18881",
         "admin_token": "node1-admin-jwt-token",
-        "gpu_count":   8,
-        "gpu_model":   "A100 80G",
+        "gpu_count": 8,
+        "gpu_model": "A100 80G",
     },
     "node2": {
-        "name":        "节点2 · RTX3090 × 4",
-        "api":         "http://localhost:18882",
+        "name": "节点2 · RTX3090 × 4",
+        "api": "http://localhost:18882",
         "admin_token": "node2-admin-jwt-token",
-        "gpu_count":   4,
-        "gpu_model":   "RTX 3090 24G",
+        "gpu_count": 4,
+        "gpu_model": "RTX 3090 24G",
     },
 }
 
