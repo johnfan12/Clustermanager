@@ -138,7 +138,7 @@ async def _fetch_node_instances(
         user_token: 当前用户的 JWT token
 
     Returns:
-        附加了 node_id / node_name 的实例列表
+        附加了 node_id / node_name 和 vps_access 的实例列表
     """
     headers = {"Authorization": f"Bearer {user_token}"}
     try:
@@ -156,9 +156,23 @@ async def _fetch_node_instances(
         elif isinstance(data, dict) and "instances" in data:
             instances = data["instances"]
 
+        # 获取 FRP 访问映射
+        from frp_manager import frp_visitor_manager
+        mappings = frp_visitor_manager.get_all_mappings()
+
         for inst in instances:
             inst["node_id"] = node_id
             inst["node_name"] = node_cfg["name"]
+
+            # 添加 VPS 访问信息
+            container_name = inst.get("container_name") or inst.get("name", "")
+            if container_name and container_name in mappings:
+                access_info = mappings[container_name]
+                inst["vps_access"] = {
+                    "ssh_cmd": f"ssh -p {access_info['vps_port']} root@{config.VPS_PUBLIC_IP}",
+                    "vps_port": access_info["vps_port"],
+                    "access_url": access_info["access_url"],
+                }
 
         return instances
 

@@ -64,11 +64,21 @@ class FrpVisitorManager:
 
         return containers
 
-    def allocate_port(self, container_name: str) -> int:
-        """为容器分配 VPS 上的访问端口."""
+    def allocate_port(self, container_name: str, preferred_port: int | None = None) -> int:
+        """为容器分配 VPS 上的访问端口.
+
+        Args:
+            container_name: 容器名称（用于哈希计算确定性端口）
+            preferred_port: 优先使用的端口（从现有配置读取），用于保持重启后端口一致
+        """
         # 如果已经分配，返回已分配的端口
         if container_name in self._allocated_ports:
             return self._allocated_ports[container_name]
+
+        # 如果有首选端口（从配置文件读取），且未被其他容器占用，优先使用
+        if preferred_port and not self._is_port_in_use(preferred_port):
+            self._allocated_ports[container_name] = preferred_port
+            return preferred_port
 
         # 计算一个确定的端口（基于容器名哈希）
         import hashlib
@@ -77,11 +87,15 @@ class FrpVisitorManager:
         port_range = FRP_CONTAINER_PORT_RANGE[1] - FRP_CONTAINER_PORT_RANGE[0]
         port = FRP_CONTAINER_PORT_RANGE[0] + (hash_value % port_range)
 
-        # 检查端口是否已被占用
+        # 检查端口是否已被占用（避免哈希碰撞）
+        original_port = port
         while self._is_port_in_use(port) and port < FRP_CONTAINER_PORT_RANGE[1]:
             port += 1
+            if port == original_port:  # 绕了一圈，端口用尽
+                raise RuntimeError(f"No free ports available in range {FRP_CONTAINER_PORT_RANGE}")
 
         self._allocated_ports[container_name] = port
+        LOGGER.debug("Allocated port %d for container %s (hash base: %d)", port, container_name, original_port)
         return port
 
     def _is_port_in_use(self, port: int) -> bool:

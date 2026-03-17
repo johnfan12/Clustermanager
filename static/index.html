@@ -460,7 +460,10 @@ function renderInstances(data) {
     instances.forEach(function(inst, idx) {
         const stCls = inst.status === 'running' ? 'status-running' : 'status-stopped';
         const stTxt = inst.status === 'running' ? '运行中' : '已停止';
-        const sshCmd = inst.ssh_cmd || inst.ssh_command || '—';
+        // 优先使用 VPS 访问地址，其次是本地地址
+        const sshCmd = (inst.vps_access && inst.vps_access.ssh_cmd)
+            ? inst.vps_access.ssh_cmd
+            : (inst.ssh_cmd || inst.ssh_command || '—');
         const pwd = inst.password || inst.ssh_password || '';
         const expire = inst.expire_time || inst.expires_at || '—';
         const gpuCount = inst.gpu_count || inst.gpu_num || '—';
