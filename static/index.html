@@ -4,202 +4,566 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GPU 集群管理</title>
-<meta name="description" content="GPU 集群跳板机聚合管理 — 集群总览与实例管理">
+<meta name="description" content="GPU 集群跳板机聚合管理 - 注册、登录并进入目标服务器">
 <style>
-/* ── 全局 ───────────────────────────────────────────── */
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    background: #ffffff; color: #303133; font-size: 14px; line-height: 1.6;
+    background: #ffffff;
+    color: #303133;
+    font-size: 14px;
+    line-height: 1.6;
 }
 a { color: #409eff; text-decoration: none; }
 button { cursor: pointer; border: none; outline: none; font-size: 14px; }
 
-/* ── 登录页 ─────────────────────────────────────────── */
-#login-page {
-    display: flex; align-items: center; justify-content: center;
-    min-height: 100vh; background: #f7f8fa;
+#auth-page {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 28px 18px;
+    background: linear-gradient(180deg, #f7f8fa 0%, #eef5ff 100%);
 }
-.login-card {
-    background: #fff; border-radius: 8px; padding: 40px 36px;
-    width: 380px; box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+.auth-shell {
+    width: min(1100px, 100%);
+    display: grid;
+    grid-template-columns: 1.15fr 0.95fr;
+    background: #fff;
+    border: 1px solid #e4e7ed;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 12px 36px rgba(31, 45, 61, 0.08);
 }
-.login-card h2 {
-    text-align: center; margin-bottom: 28px; font-size: 20px;
-    color: #303133; font-weight: 600;
+.auth-side {
+    padding: 34px 34px 30px;
+    background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
+    border-right: 1px solid #e4e7ed;
 }
-.form-group { margin-bottom: 18px; }
-.form-group label { display: block; margin-bottom: 6px; color: #606266; font-size: 13px; }
-.form-group input {
-    width: 100%; padding: 10px 12px; border: 1px solid #dcdfe6;
-    border-radius: 4px; font-size: 14px; transition: border-color .2s;
+.auth-side h1 {
+    font-size: 28px;
+    line-height: 1.2;
+    color: #303133;
+    margin-bottom: 12px;
 }
-.form-group input:focus { border-color: #409eff; outline: none; }
-.login-btn {
-    width: 100%; padding: 11px; background: #409eff; color: #fff;
-    border-radius: 4px; font-size: 15px; font-weight: 500;
+.auth-side p {
+    color: #606266;
+    margin-bottom: 20px;
+}
+.flow-box {
+    padding: 14px 16px;
+    border: 1px solid #d9ecff;
+    border-radius: 10px;
+    background: #f4f9ff;
+    color: #409eff;
+    margin-bottom: 18px;
+}
+.flow-box strong { display: block; margin-bottom: 4px; }
+.point-list {
+    display: grid;
+    gap: 10px;
+    margin-bottom: 22px;
+}
+.point {
+    padding: 12px 14px;
+    border: 1px solid #ebeef5;
+    border-radius: 10px;
+    background: #fff;
+    color: #606266;
+}
+.section-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+.section-title h2 {
+    font-size: 15px;
+    color: #303133;
+}
+.section-tip {
+    color: #909399;
+    font-size: 12px;
+}
+.node-list {
+    display: grid;
+    gap: 10px;
+}
+.node-card {
+    border: 1px solid #e4e7ed;
+    border-radius: 10px;
+    background: #fff;
+    padding: 14px;
+    transition: all .2s ease;
+}
+.node-card:hover { border-color: #b3d8ff; box-shadow: 0 6px 18px rgba(64, 158, 255, 0.08); }
+.node-card.selected {
+    border-color: #409eff;
+    background: #ecf5ff;
+    box-shadow: 0 10px 24px rgba(64, 158, 255, 0.12);
+}
+.node-card.offline { opacity: .72; }
+.node-card-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+.node-name { font-weight: 600; color: #303133; }
+.node-meta { color: #909399; font-size: 12px; }
+.node-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    white-space: nowrap;
+}
+.dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+.dot.online { background: #67c23a; }
+.dot.offline { background: #c0c4cc; }
+.node-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    border: 1px solid #dcdfe6;
+    color: #606266;
+    background: #f5f7fa;
+}
+.tag.primary {
+    border-color: #b3d8ff;
+    color: #409eff;
+    background: #ecf5ff;
+}
+
+.auth-main {
+    padding: 34px 34px 30px;
+}
+.tabs {
+    display: inline-flex;
+    border: 1px solid #dcdfe6;
+    border-radius: 10px;
+    padding: 4px;
+    background: #f7f8fa;
+    margin-bottom: 18px;
+}
+.tab {
+    min-width: 104px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: transparent;
+    color: #606266;
+    font-weight: 500;
+}
+.tab.active {
+    background: #409eff;
+    color: #fff;
+}
+.auth-panel-title {
+    font-size: 22px;
+    color: #303133;
+    margin-bottom: 8px;
+}
+.auth-panel-subtitle {
+    color: #909399;
+    margin-bottom: 18px;
+}
+.selected-node-box {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border: 1px solid #d9ecff;
+    border-radius: 10px;
+    background: #f4f9ff;
+    margin-bottom: 18px;
+}
+.selected-node-text strong { color: #303133; }
+.selected-node-text div { color: #909399; font-size: 12px; }
+.stack { display: grid; gap: 14px; }
+.hidden { display: none !important; }
+.field label {
+    display: block;
+    margin-bottom: 6px;
+    color: #606266;
+    font-size: 13px;
+}
+.field input {
+    width: 100%;
+    padding: 11px 12px;
+    border: 1px solid #dcdfe6;
+    border-radius: 8px;
+    font-size: 14px;
+    transition: border-color .2s, box-shadow .2s;
+}
+.field input:focus {
+    border-color: #409eff;
+    box-shadow: 0 0 0 3px rgba(64, 158, 255, 0.12);
+}
+.primary-btn {
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: #409eff;
+    color: #fff;
+    font-weight: 600;
     transition: background .2s;
 }
-.login-btn:hover { background: #66b1ff; }
-.login-btn:disabled { background: #a0cfff; cursor: not-allowed; }
-.login-error { color: #f56c6c; font-size: 13px; margin-top: 10px; text-align: center; }
+.primary-btn:hover { background: #66b1ff; }
+.primary-btn:disabled { background: #a0cfff; cursor: not-allowed; }
+.helper { color: #909399; font-size: 12px; }
+.feedback {
+    min-height: 20px;
+    color: #f56c6c;
+    font-size: 13px;
+}
+.feedback.success { color: #67c23a; }
 
-/* ── 主界面 ─────────────────────────────────────────── */
 #main-page { display: none; }
-
 .header {
-    background: #fff; border-bottom: 1px solid #e4e7ed;
-    padding: 0 24px; height: 56px;
-    display: flex; align-items: center; justify-content: space-between;
+    background: #fff;
+    border-bottom: 1px solid #e4e7ed;
+    padding: 0 24px;
+    min-height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
 }
 .header h1 { font-size: 17px; font-weight: 600; color: #303133; }
-.header-right { display: flex; align-items: center; gap: 16px; color: #606266; font-size: 13px; }
-.header-right .username { font-weight: 500; color: #303133; }
-.last-update { color: #909399; font-size: 12px; }
-.logout-btn {
-    padding: 5px 14px; background: #f5f7fa; border: 1px solid #dcdfe6;
-    border-radius: 4px; color: #606266; font-size: 13px; transition: all .2s;
+.header-sub { color: #909399; font-size: 12px; margin-top: 2px; }
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
 }
-.logout-btn:hover { border-color: #409eff; color: #409eff; }
+.current-node-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid #d9ecff;
+    background: #f4f9ff;
+    color: #409eff;
+    font-size: 12px;
+}
+.username { font-weight: 600; color: #303133; }
+.last-update { color: #909399; font-size: 12px; }
+.action-btn {
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    border: 1px solid #dcdfe6;
+    background: #fff;
+    color: #606266;
+}
+.action-btn:hover { border-color: #409eff; color: #409eff; }
+.action-btn.primary {
+    border-color: #409eff;
+    background: #409eff;
+    color: #fff;
+}
+.action-btn.primary:hover { background: #66b1ff; color: #fff; }
 
-.container { max-width: 1200px; margin: 0 auto; padding: 20px 24px; }
+.container { max-width: 1240px; margin: 0 auto; padding: 20px 24px; }
+.entry-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 18px;
+    border: 1px solid #d9ecff;
+    border-radius: 10px;
+    background: linear-gradient(90deg, #f4f9ff 0%, #ffffff 100%);
+    margin-bottom: 18px;
+}
+.entry-banner strong { color: #303133; }
+.entry-banner p { color: #606266; }
 
-/* ── 区块卡片 ───────────────────────────────────────── */
 .section {
-    background: #fff; border: 1px solid #e4e7ed; border-radius: 6px;
-    margin-bottom: 20px; overflow: hidden;
+    background: #fff;
+    border: 1px solid #e4e7ed;
+    border-radius: 6px;
+    margin-bottom: 20px;
+    overflow: hidden;
 }
 .section-header {
-    padding: 14px 20px; border-bottom: 1px solid #e4e7ed;
-    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid #e4e7ed;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
     background: #fafafa;
 }
 .section-header h2 { font-size: 15px; font-weight: 600; color: #303133; }
 .section-summary { font-size: 13px; color: #909399; }
 
-/* ── 表格 ───────────────────────────────────────────── */
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
 thead th {
-    padding: 10px 16px; text-align: left; font-weight: 500;
-    color: #909399; font-size: 13px; background: #fafafa;
-    border-bottom: 1px solid #ebeef5; white-space: nowrap;
+    padding: 10px 16px;
+    text-align: left;
+    font-weight: 500;
+    color: #909399;
+    font-size: 13px;
+    background: #fafafa;
+    border-bottom: 1px solid #ebeef5;
+    white-space: nowrap;
 }
 tbody td {
-    padding: 10px 16px; border-bottom: 1px solid #ebeef5;
-    font-size: 13px; color: #606266; vertical-align: middle;
+    padding: 10px 16px;
+    border-bottom: 1px solid #ebeef5;
+    font-size: 13px;
+    color: #606266;
+    vertical-align: middle;
 }
 tbody tr:hover { background: #ecf5ff; }
 tbody tr:last-child td { border-bottom: none; }
 
-/* ── 状态徽章 ───────────────────────────────────────── */
 .status-online { color: #67c23a; }
 .status-offline { color: #c0c4cc; }
 .status-running { color: #67c23a; font-weight: 500; }
 .status-stopped { color: #909399; }
 .gpu-zero { color: #f56c6c; font-weight: 600; }
 
-/* ── 按钮 ───────────────────────────────────────────── */
 .btn-primary {
-    padding: 5px 14px; background: #409eff; color: #fff;
-    border-radius: 4px; font-size: 12px; transition: background .2s;
+    padding: 5px 14px;
+    background: #409eff;
+    color: #fff;
+    border-radius: 4px;
+    font-size: 12px;
+    transition: background .2s;
     display: inline-block;
 }
 .btn-primary:hover { background: #66b1ff; }
-.btn-small {
-    padding: 3px 10px; background: #f5f7fa; border: 1px solid #dcdfe6;
-    border-radius: 3px; font-size: 12px; color: #606266;
-    transition: all .2s;
+.btn-primary.disabled,
+.btn-primary[disabled] {
+    background: #c0c4cc;
+    cursor: not-allowed;
 }
-.btn-small:hover { border-color: #409eff; color: #409eff; }
 
-/* ── 展开行（GPU 详情）──────────────────────────────── */
 .expand-row { display: none; }
 .expand-row.visible { display: table-row; }
 .expand-row td { padding: 8px 16px 8px 40px; background: #f7f8fa; }
-.gpu-grid {
-    display: flex; flex-wrap: wrap; gap: 8px;
-}
+.gpu-grid { display: flex; flex-wrap: wrap; gap: 8px; }
 .gpu-chip {
-    padding: 4px 10px; border-radius: 4px; font-size: 12px;
-    border: 1px solid #e4e7ed; background: #fff;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    border: 1px solid #e4e7ed;
+    background: #fff;
 }
 .gpu-chip.used { background: #fdf6ec; border-color: #e6a23c; color: #e6a23c; }
 .gpu-chip.free { background: #f0f9eb; border-color: #67c23a; color: #67c23a; }
 
-/* ── SSH & 密码列 ───────────────────────────────────── */
-.ssh-cell { display: flex; align-items: center; gap: 6px; }
+.ssh-cell,
+.pwd-cell {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
 .ssh-cmd {
-    font-family: "SF Mono", "Fira Code", monospace; font-size: 12px;
-    background: #f5f7fa; padding: 3px 8px; border-radius: 3px;
-    color: #303133; white-space: nowrap;
+    font-family: "SF Mono", "Fira Code", monospace;
+    font-size: 12px;
+    background: #f5f7fa;
+    padding: 3px 8px;
+    border-radius: 3px;
+    color: #303133;
+    white-space: nowrap;
 }
 .copy-btn {
-    padding: 2px 8px; font-size: 11px; background: none;
-    border: 1px solid #dcdfe6; border-radius: 3px; color: #909399;
+    padding: 2px 8px;
+    font-size: 11px;
+    background: none;
+    border: 1px solid #dcdfe6;
+    border-radius: 3px;
+    color: #909399;
     transition: all .2s;
 }
 .copy-btn:hover { border-color: #409eff; color: #409eff; }
-.pwd-cell { display: flex; align-items: center; gap: 6px; }
 .pwd-toggle {
-    background: none; border: none; font-size: 14px; color: #909399;
-    cursor: pointer; padding: 0 4px;
+    background: none;
+    border: none;
+    font-size: 14px;
+    color: #909399;
+    cursor: pointer;
+    padding: 0 4px;
 }
 .pwd-toggle:hover { color: #409eff; }
 
-/* ── 空状态 ─────────────────────────────────────────── */
 .empty-state {
-    text-align: center; padding: 40px 20px; color: #c0c4cc; font-size: 14px;
+    text-align: center;
+    padding: 40px 20px;
+    color: #c0c4cc;
+    font-size: 14px;
 }
-
-/* ── 可点击行 ───────────────────────────────────────── */
 .clickable-row { cursor: pointer; }
 .clickable-row td:first-child::before {
-    content: "▶"; margin-right: 6px; font-size: 10px;
-    color: #c0c4cc; transition: transform .2s; display: inline-block;
+    content: "▶";
+    margin-right: 6px;
+    font-size: 10px;
+    color: #c0c4cc;
+    transition: transform .2s;
+    display: inline-block;
 }
-.clickable-row.expanded td:first-child::before {
-    transform: rotate(90deg);
+.clickable-row.expanded td:first-child::before { transform: rotate(90deg); }
+
+.toast {
+    position: fixed;
+    left: 50%;
+    bottom: 30px;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(48, 49, 51, 0.92);
+    color: #fff;
+    padding: 10px 16px;
+    border-radius: 999px;
+    font-size: 13px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s ease, transform .2s ease;
+}
+.toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+@media (max-width: 960px) {
+    .auth-shell { grid-template-columns: 1fr; }
+    .auth-side { border-right: none; border-bottom: 1px solid #e4e7ed; }
+}
+@media (max-width: 720px) {
+    .header,
+    .entry-banner,
+    .section-header,
+    .selected-node-box {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .header-right { justify-content: flex-start; }
+    .container { padding: 16px; }
+    .auth-side,
+    .auth-main { padding: 24px 20px; }
 }
 </style>
 </head>
 <body>
 
-<!-- ═══ 登录页 ═══════════════════════════════════════ -->
-<div id="login-page">
-    <div class="login-card">
-        <h2>GPU 集群管理</h2>
-        <div class="form-group">
-            <label for="login-username">用户名</label>
-            <input type="text" id="login-username" placeholder="请输入用户名" autocomplete="username">
+<div id="auth-page">
+    <div class="auth-shell">
+        <div class="auth-side">
+            <h1>GPU 集群跳板机</h1>
+            <p>先注册或登录目标服务器账号，再一键跳转进入对应的 Servermanager 管理页。</p>
+            <div class="flow-box">
+                <strong>推荐流程</strong>
+                1. 选择服务器 -> 2. 注册或登录 -> 3. 点击进入服务器
+            </div>
+            <div class="point-list">
+                <div class="point">统一查看整个集群的节点状态与我的实例。</div>
+                <div class="point">注册直接写入所选 Servermanager，并自动登录。</div>
+                <div class="point">进入服务器时自动携带共享 JWT，避免重复登录。</div>
+            </div>
+            <div class="section-title">
+                <h2>选择目标服务器</h2>
+                <span class="section-tip" id="node-summary">加载中...</span>
+            </div>
+            <div class="node-list" id="auth-node-list"></div>
         </div>
-        <div class="form-group">
-            <label for="login-password">密码</label>
-            <input type="password" id="login-password" placeholder="请输入密码" autocomplete="current-password">
+
+        <div class="auth-main">
+            <div class="tabs">
+                <button id="login-tab" class="tab active" type="button">登录</button>
+                <button id="register-tab" class="tab" type="button">注册</button>
+            </div>
+            <div class="auth-panel-title">进入你的计算服务器</div>
+            <div class="auth-panel-subtitle">登录与注册都会作用于当前选中的 Servermanager 节点。</div>
+
+            <div class="selected-node-box">
+                <div class="selected-node-text">
+                    <strong id="selected-node-name">尚未选择服务器</strong>
+                    <div id="selected-node-meta">请先在左侧选中一个可用节点</div>
+                </div>
+                <span class="tag primary" id="selected-node-tag">未选择</span>
+            </div>
+
+            <form id="login-form" class="stack">
+                <div class="field">
+                    <label for="login-username">用户名</label>
+                    <input type="text" id="login-username" placeholder="请输入服务器账号用户名" autocomplete="username">
+                </div>
+                <div class="field">
+                    <label for="login-password">密码</label>
+                    <input type="password" id="login-password" placeholder="请输入密码" autocomplete="current-password">
+                </div>
+                <button class="primary-btn" id="login-btn" type="submit">登录当前服务器</button>
+                <div class="helper">如果这个账号已经存在于所选服务器，登录后即可直接进入。</div>
+                <div class="feedback" id="login-feedback"></div>
+            </form>
+
+            <form id="register-form" class="stack hidden">
+                <div class="field">
+                    <label for="register-username">用户名</label>
+                    <input type="text" id="register-username" minlength="3" placeholder="仅支持字母、数字和下划线" autocomplete="username">
+                </div>
+                <div class="field">
+                    <label for="register-email">邮箱</label>
+                    <input type="email" id="register-email" placeholder="请输入邮箱" autocomplete="email">
+                </div>
+                <div class="field">
+                    <label for="register-password">密码</label>
+                    <input type="password" id="register-password" minlength="6" placeholder="至少 6 位" autocomplete="new-password">
+                </div>
+                <button class="primary-btn" id="register-btn" type="submit">注册并登录当前服务器</button>
+                <div class="helper">注册成功后会自动登录，并把你带到可直接进入服务器的状态。</div>
+                <div class="feedback" id="register-feedback"></div>
+            </form>
         </div>
-        <button class="login-btn" id="login-btn" onclick="doLogin()">登 录</button>
-        <div class="login-error" id="login-error"></div>
     </div>
 </div>
 
-<!-- ═══ 主界面 ═══════════════════════════════════════ -->
 <div id="main-page">
-    <!-- 顶部 Header -->
     <div class="header">
-        <h1>GPU 集群管理</h1>
+        <div>
+            <h1>GPU 集群管理</h1>
+            <div class="header-sub">已打通注册 -> 选择服务器 -> 进入 Servermanager 的统一入口</div>
+        </div>
         <div class="header-right">
+            <span class="current-node-pill" id="current-node-pill">当前服务器: 未选择</span>
             <span class="last-update" id="last-update"></span>
             <span>👤 <span class="username" id="header-username"></span></span>
-            <button class="logout-btn" onclick="doLogout()">退出</button>
+            <button class="action-btn primary" id="enter-server-btn" type="button">进入当前服务器</button>
+            <button class="action-btn" id="logout-btn" type="button">退出</button>
         </div>
     </div>
 
     <div class="container">
-        <!-- 区块一：集群总览 -->
+        <div class="entry-banner">
+            <div>
+                <strong id="entry-banner-title">当前登录服务器未设置</strong>
+                <p id="entry-banner-text">登录或注册后，这里会显示你当前可直达的 Servermanager 节点。</p>
+            </div>
+            <button class="action-btn primary" id="banner-enter-btn" type="button">立即进入服务器</button>
+        </div>
+
         <div class="section">
             <div class="section-header">
                 <h2>集群总览</h2>
-                <span class="section-summary" id="cluster-summary">加载中…</span>
+                <span class="section-summary" id="cluster-summary">加载中...</span>
             </div>
             <div class="table-wrap">
                 <table>
@@ -214,17 +578,16 @@ tbody tr:last-child td { border-bottom: none; }
                         </tr>
                     </thead>
                     <tbody id="cluster-tbody">
-                        <tr><td colspan="6" class="empty-state">加载中…</td></tr>
+                        <tr><td colspan="6" class="empty-state">加载中...</td></tr>
                     </tbody>
                 </table>
             </div>
         </div>
 
-        <!-- 区块二：我的实例 -->
         <div class="section">
             <div class="section-header">
                 <h2>我的实例</h2>
-                <span class="section-summary" id="instance-summary">加载中…</span>
+                <span class="section-summary" id="instance-summary">加载中...</span>
             </div>
             <div class="table-wrap">
                 <table>
@@ -242,7 +605,7 @@ tbody tr:last-child td { border-bottom: none; }
                         </tr>
                     </thead>
                     <tbody id="instance-tbody">
-                        <tr><td colspan="9" class="empty-state">加载中…</td></tr>
+                        <tr><td colspan="9" class="empty-state">加载中...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -250,168 +613,510 @@ tbody tr:last-child td { border-bottom: none; }
     </div>
 </div>
 
+<div id="toast" class="toast"></div>
+
 <script>
-/* ═══════════════════════════════════════════════════════
-   全局状态
-   ═══════════════════════════════════════════════════════ */
-const API = '';
-let token     = localStorage.getItem('token') || '';
-let username  = localStorage.getItem('username') || '';
-let refreshTimer = null;
+const API = "";
+const STORAGE = {
+    token: "cluster_token",
+    user: "cluster_user",
+    nodeId: "cluster_node_id",
+    nodeName: "cluster_node_name",
+    entryUrl: "cluster_entry_url"
+};
 
-/* ─── 初始化 ─────────────────────────────────────────── */
-(function init() {
-    if (token) {
-        showMain();
-    } else {
-        showLogin();
-    }
-    // 回车登录
-    document.getElementById('login-password').addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') doLogin();
-    });
-    document.getElementById('login-username').addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') document.getElementById('login-password').focus();
-    });
-})();
+const state = {
+    token: localStorage.getItem(STORAGE.token) || "",
+    user: safeParse(localStorage.getItem(STORAGE.user)),
+    currentNodeId: localStorage.getItem(STORAGE.nodeId) || "",
+    currentNodeName: localStorage.getItem(STORAGE.nodeName) || "",
+    currentEntryUrl: localStorage.getItem(STORAGE.entryUrl) || "",
+    selectedAuthNodeId: localStorage.getItem(STORAGE.nodeId) || "",
+    authNodes: [],
+    refreshTimer: null
+};
 
-/* ═══════════════════════════════════════════════════════
-   登录 / 退出
-   ═══════════════════════════════════════════════════════ */
-async function doLogin() {
-    const user = document.getElementById('login-username').value.trim();
-    const pass = document.getElementById('login-password').value;
-    const errEl = document.getElementById('login-error');
-    const btn = document.getElementById('login-btn');
-    errEl.textContent = '';
+const els = {
+    authPage: document.getElementById("auth-page"),
+    mainPage: document.getElementById("main-page"),
+    loginTab: document.getElementById("login-tab"),
+    registerTab: document.getElementById("register-tab"),
+    loginForm: document.getElementById("login-form"),
+    registerForm: document.getElementById("register-form"),
+    loginBtn: document.getElementById("login-btn"),
+    registerBtn: document.getElementById("register-btn"),
+    loginFeedback: document.getElementById("login-feedback"),
+    registerFeedback: document.getElementById("register-feedback"),
+    authNodeList: document.getElementById("auth-node-list"),
+    nodeSummary: document.getElementById("node-summary"),
+    selectedNodeName: document.getElementById("selected-node-name"),
+    selectedNodeMeta: document.getElementById("selected-node-meta"),
+    selectedNodeTag: document.getElementById("selected-node-tag"),
+    headerUsername: document.getElementById("header-username"),
+    currentNodePill: document.getElementById("current-node-pill"),
+    lastUpdate: document.getElementById("last-update"),
+    logoutBtn: document.getElementById("logout-btn"),
+    enterServerBtn: document.getElementById("enter-server-btn"),
+    bannerEnterBtn: document.getElementById("banner-enter-btn"),
+    entryBannerTitle: document.getElementById("entry-banner-title"),
+    entryBannerText: document.getElementById("entry-banner-text"),
+    clusterSummary: document.getElementById("cluster-summary"),
+    clusterTbody: document.getElementById("cluster-tbody"),
+    instanceSummary: document.getElementById("instance-summary"),
+    instanceTbody: document.getElementById("instance-tbody"),
+    toast: document.getElementById("toast")
+};
 
-    if (!user || !pass) { errEl.textContent = '请填写用户名和密码'; return; }
-
-    btn.disabled = true;
-    btn.textContent = '登录中…';
-
+function safeParse(value) {
+    if (!value) return null;
     try {
-        const body = new URLSearchParams({ username: user, password: pass });
-        const resp = await fetch(API + '/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: body,
-        });
-        if (!resp.ok) {
-            const d = await resp.json().catch(() => ({}));
-            throw new Error(d.detail || '登录失败');
-        }
-        const data = await resp.json();
-        token = data.access_token;
-        username = data.username;
-        localStorage.setItem('token', token);
-        localStorage.setItem('username', username);
-        showMain();
-    } catch (e) {
-        errEl.textContent = e.message;
-    } finally {
-        btn.disabled = false;
-        btn.textContent = '登 录';
+        return JSON.parse(value);
+    } catch (error) {
+        return null;
     }
 }
 
-function doLogout() {
-    token = '';
-    username = '';
-    localStorage.removeItem('token');
-    localStorage.removeItem('username');
-    if (refreshTimer) clearInterval(refreshTimer);
-    showLogin();
+function setFeedback(target, message, success) {
+    target.textContent = message || "";
+    target.classList.toggle("success", Boolean(success));
+}
+
+function showToast(message) {
+    els.toast.textContent = message;
+    els.toast.classList.add("show");
+    window.clearTimeout(showToast.timer);
+    showToast.timer = window.setTimeout(function() {
+        els.toast.classList.remove("show");
+    }, 2200);
+}
+
+function escHtml(value) {
+    const div = document.createElement("div");
+    div.appendChild(document.createTextNode(String(value == null ? "" : value)));
+    return div.innerHTML;
+}
+
+function escJs(value) {
+    return String(value == null ? "" : value)
+        .replace(/\\/g, "\\\\")
+        .replace(/'/g, "\\'")
+        .replace(/\"/g, '\\"');
+}
+
+async function copyText(text, btn) {
+    if (!text) return;
+
+    function markCopied() {
+        if (!btn) return;
+        const original = btn.textContent;
+        btn.textContent = "✓";
+        window.setTimeout(function() {
+            btn.textContent = original;
+        }, 1500);
+    }
+
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        try {
+            await navigator.clipboard.writeText(text);
+            markCopied();
+            return;
+        } catch (error) {}
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "readonly");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    textarea.style.pointerEvents = "none";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+
+    let copied = false;
+    try {
+        copied = document.execCommand("copy");
+    } finally {
+        document.body.removeChild(textarea);
+    }
+    if (!copied) {
+        throw new Error("复制失败");
+    }
+    markCopied();
+}
+
+function authHeaders() {
+    return state.token ? { Authorization: "Bearer " + state.token } : {};
+}
+
+async function requestJson(path, options) {
+    const requestOptions = options || {};
+    const headers = Object.assign({}, requestOptions.headers || {});
+    if (state.token && !headers.Authorization) {
+        headers.Authorization = "Bearer " + state.token;
+    }
+    if (requestOptions.body && !headers["Content-Type"]) {
+        headers["Content-Type"] = "application/json";
+    }
+
+    const response = await fetch(API + path, Object.assign({}, requestOptions, { headers: headers }));
+    const contentType = response.headers.get("content-type") || "";
+    const data = contentType.indexOf("application/json") >= 0
+        ? await response.json()
+        : await response.text();
+
+    if (!response.ok) {
+        const detail = typeof data === "string"
+            ? data
+            : (data && (data.detail || data.message)) || "请求失败";
+        throw new Error(detail);
+    }
+
+    return data;
+}
+
+function persistSession() {
+    localStorage.setItem(STORAGE.token, state.token || "");
+    localStorage.setItem(STORAGE.user, JSON.stringify(state.user || null));
+    localStorage.setItem(STORAGE.nodeId, state.currentNodeId || "");
+    localStorage.setItem(STORAGE.nodeName, state.currentNodeName || "");
+    localStorage.setItem(STORAGE.entryUrl, state.currentEntryUrl || "");
+}
+
+function clearSession() {
+    state.token = "";
+    state.user = null;
+    state.currentNodeId = "";
+    state.currentNodeName = "";
+    state.currentEntryUrl = "";
+    localStorage.removeItem(STORAGE.token);
+    localStorage.removeItem(STORAGE.user);
+    localStorage.removeItem(STORAGE.nodeId);
+    localStorage.removeItem(STORAGE.nodeName);
+    localStorage.removeItem(STORAGE.entryUrl);
+}
+
+function switchTab(mode) {
+    const isLogin = mode === "login";
+    els.loginTab.classList.toggle("active", isLogin);
+    els.registerTab.classList.toggle("active", !isLogin);
+    els.loginForm.classList.toggle("hidden", !isLogin);
+    els.registerForm.classList.toggle("hidden", isLogin);
+    setFeedback(els.loginFeedback, "", false);
+    setFeedback(els.registerFeedback, "", false);
+}
+
+function getSelectedNode() {
+    for (let i = 0; i < state.authNodes.length; i += 1) {
+        if (state.authNodes[i].node_id === state.selectedAuthNodeId) {
+            return state.authNodes[i];
+        }
+    }
+    return null;
+}
+
+function updateSelectedNodeBox() {
+    const node = getSelectedNode();
+    if (!node) {
+        els.selectedNodeName.textContent = "尚未选择服务器";
+        els.selectedNodeMeta.textContent = "请先在左侧选中一个可用节点";
+        els.selectedNodeTag.textContent = "未选择";
+        els.selectedNodeTag.classList.add("primary");
+        return;
+    }
+
+    els.selectedNodeName.textContent = node.name || node.node_id;
+    els.selectedNodeMeta.textContent = node.online
+        ? (node.allow_register ? "该节点在线，支持注册与登录" : "该节点在线，仅支持已有账号登录")
+        : "该节点当前离线，暂时无法注册或登录";
+    els.selectedNodeTag.textContent = node.online ? "在线" : "离线";
+    els.selectedNodeTag.classList.toggle("primary", Boolean(node.online));
+}
+
+function selectNode(nodeId) {
+    state.selectedAuthNodeId = nodeId;
+    localStorage.setItem(STORAGE.nodeId, nodeId);
+    renderAuthNodes();
+    updateSelectedNodeBox();
+}
+
+function renderAuthNodes() {
+    if (!state.authNodes.length) {
+        els.authNodeList.innerHTML = '<div class="empty-state" style="padding:24px 12px;">暂无可用节点配置</div>';
+        els.nodeSummary.textContent = "0 个节点";
+        updateSelectedNodeBox();
+        return;
+    }
+
+    let onlineCount = 0;
+    let html = "";
+    state.authNodes.forEach(function(node) {
+        if (node.online) onlineCount += 1;
+        const selected = node.node_id === state.selectedAuthNodeId;
+        const classNames = ["node-card"];
+        if (selected) classNames.push("selected");
+        if (!node.online) classNames.push("offline");
+        html += '<button type="button" class="' + classNames.join(" ") + '" data-node-id="' + escHtml(node.node_id) + '">';
+        html += '<div class="node-card-header">';
+        html += '<div><div class="node-name">' + escHtml(node.name || node.node_id) + '</div>';
+        html += '<div class="node-meta">' + escHtml(node.node_id) + '</div></div>';
+        html += '<span class="node-status"><span class="dot ' + (node.online ? 'online' : 'offline') + '"></span>' + (node.online ? '在线' : '离线') + '</span>';
+        html += '</div>';
+        html += '<div class="node-tags">';
+        html += '<span class="tag">' + (node.allow_register ? '可注册' : '仅登录') + '</span>';
+        if (selected) html += '<span class="tag primary">当前选择</span>';
+        if (state.currentNodeId && state.currentNodeId === node.node_id && state.token) html += '<span class="tag primary">已登录</span>';
+        html += '</div>';
+        html += '</button>';
+    });
+    els.authNodeList.innerHTML = html;
+    els.nodeSummary.textContent = state.authNodes.length + ' 个节点，在线 ' + onlineCount + ' 个';
+
+    Array.prototype.forEach.call(els.authNodeList.querySelectorAll("button[data-node-id]"), function(button) {
+        button.addEventListener("click", function() {
+            selectNode(button.getAttribute("data-node-id"));
+        });
+    });
+
+    updateSelectedNodeBox();
+}
+
+function renderHeader() {
+    els.headerUsername.textContent = state.user && state.user.username ? state.user.username : "-";
+    els.currentNodePill.textContent = "当前服务器: " + (state.currentNodeName || "未选择");
+    els.entryBannerTitle.textContent = state.currentNodeName
+        ? ("当前已接入 " + state.currentNodeName)
+        : "当前登录服务器未设置";
+    els.entryBannerText.textContent = state.currentEntryUrl
+        ? "你可以从这里直接跳转到对应的 Servermanager 页面继续创建、管理和进入实例。"
+        : "当前没有可用的节点直达地址，请先选择服务器并重新登录。";
+    els.enterServerBtn.disabled = !state.currentEntryUrl;
+    els.bannerEnterBtn.disabled = !state.currentEntryUrl;
 }
 
 function showLogin() {
-    document.getElementById('login-page').style.display = 'flex';
-    document.getElementById('main-page').style.display = 'none';
+    els.authPage.style.display = "flex";
+    els.mainPage.style.display = "none";
 }
 
 function showMain() {
-    document.getElementById('login-page').style.display = 'none';
-    document.getElementById('main-page').style.display = 'block';
-    document.getElementById('header-username').textContent = username;
-    loadAll();
-    // 30 秒自动刷新
-    if (refreshTimer) clearInterval(refreshTimer);
-    refreshTimer = setInterval(loadAll, 30000);
+    els.authPage.style.display = "none";
+    els.mainPage.style.display = "block";
+    renderHeader();
 }
 
-/* ═══════════════════════════════════════════════════════
-   数据加载
-   ═══════════════════════════════════════════════════════ */
+function logout() {
+    clearSession();
+    if (state.refreshTimer) {
+        clearInterval(state.refreshTimer);
+        state.refreshTimer = null;
+    }
+    renderAuthNodes();
+    showLogin();
+}
+
+async function loadAuthNodes() {
+    try {
+        const data = await requestJson("/api/auth/nodes", { headers: {} });
+        state.authNodes = Array.isArray(data.nodes) ? data.nodes : [];
+        if (!state.selectedAuthNodeId && state.authNodes.length) {
+            state.selectedAuthNodeId = state.authNodes[0].node_id;
+        }
+        const selectedStillExists = state.authNodes.some(function(node) {
+            return node.node_id === state.selectedAuthNodeId;
+        });
+        if (!selectedStillExists && state.authNodes.length) {
+            state.selectedAuthNodeId = state.authNodes[0].node_id;
+        }
+        renderAuthNodes();
+    } catch (error) {
+        els.authNodeList.innerHTML = '<div class="empty-state" style="padding:24px 12px;">节点列表加载失败</div>';
+        els.nodeSummary.textContent = "加载失败";
+        updateSelectedNodeBox();
+    }
+}
+
+function requireSelectedNode(mode) {
+    const node = getSelectedNode();
+    if (!node) {
+        throw new Error("请先选择服务器");
+    }
+    if (!node.online) {
+        throw new Error("当前节点离线，请选择其他服务器");
+    }
+    if (mode === "register" && !node.allow_register) {
+        throw new Error("当前节点未开放注册，请切换到其他节点或使用已有账号登录");
+    }
+    return node;
+}
+
+function applyAuthResult(data) {
+    state.token = data.access_token || "";
+    state.user = data.user || { username: data.username || "", is_admin: Boolean(data.is_admin) };
+    state.currentNodeId = data.node_id || state.selectedAuthNodeId || "";
+    state.currentNodeName = data.node_name || (getSelectedNode() ? getSelectedNode().name : "");
+    state.currentEntryUrl = data.entry_url || "";
+    persistSession();
+    renderAuthNodes();
+    renderHeader();
+}
+
+function buildEntryUrl(webUrl) {
+    if (!webUrl) return "";
+    const separator = webUrl.indexOf("?") >= 0 ? "&" : "?";
+    return webUrl + separator + "token=" + encodeURIComponent(state.token);
+}
+
+function openCurrentServer() {
+    if (!state.currentEntryUrl) {
+        showToast("当前服务器直达地址不可用");
+        return;
+    }
+    window.open(state.currentEntryUrl, "_blank", "noopener");
+}
+
+async function doLogin(event) {
+    event.preventDefault();
+    setFeedback(els.loginFeedback, "", false);
+    let node;
+    try {
+        node = requireSelectedNode("login");
+    } catch (error) {
+        setFeedback(els.loginFeedback, error.message, false);
+        return;
+    }
+
+    const username = document.getElementById("login-username").value.trim();
+    const password = document.getElementById("login-password").value;
+    if (!username || !password) {
+        setFeedback(els.loginFeedback, "请填写用户名和密码", false);
+        return;
+    }
+
+    els.loginBtn.disabled = true;
+    els.loginBtn.textContent = "登录中...";
+    try {
+        const data = await requestJson("/api/auth/login", {
+            method: "POST",
+            body: JSON.stringify({ node_id: node.node_id, username: username, password: password })
+        });
+        applyAuthResult(data);
+        showMain();
+        await loadAll();
+        showToast("已登录 " + (data.node_name || node.name));
+    } catch (error) {
+        setFeedback(els.loginFeedback, error.message || "登录失败", false);
+    } finally {
+        els.loginBtn.disabled = false;
+        els.loginBtn.textContent = "登录当前服务器";
+    }
+}
+
+async function doRegister(event) {
+    event.preventDefault();
+    setFeedback(els.registerFeedback, "", false);
+    let node;
+    try {
+        node = requireSelectedNode("register");
+    } catch (error) {
+        setFeedback(els.registerFeedback, error.message, false);
+        return;
+    }
+
+    const username = document.getElementById("register-username").value.trim();
+    const email = document.getElementById("register-email").value.trim();
+    const password = document.getElementById("register-password").value;
+    if (!username || !email || !password) {
+        setFeedback(els.registerFeedback, "请填写完整注册信息", false);
+        return;
+    }
+
+    els.registerBtn.disabled = true;
+    els.registerBtn.textContent = "注册中...";
+    try {
+        const data = await requestJson("/api/auth/register", {
+            method: "POST",
+            body: JSON.stringify({ node_id: node.node_id, username: username, email: email, password: password })
+        });
+        applyAuthResult(data);
+        showMain();
+        await loadAll();
+        setFeedback(els.registerFeedback, data.message || "注册成功", true);
+        showToast(data.message || "注册成功，已自动登录");
+    } catch (error) {
+        setFeedback(els.registerFeedback, error.message || "注册失败", false);
+    } finally {
+        els.registerBtn.disabled = false;
+        els.registerBtn.textContent = "注册并登录当前服务器";
+    }
+}
+
 async function loadAll() {
     await Promise.all([loadCluster(), loadMyInstances()]);
     updateTime();
+    if (state.refreshTimer) {
+        clearInterval(state.refreshTimer);
+    }
+    state.refreshTimer = setInterval(function() {
+        loadAll().catch(function() {});
+    }, 30000);
 }
 
 function updateTime() {
     const now = new Date();
-    const hh = String(now.getHours()).padStart(2, '0');
-    const mm = String(now.getMinutes()).padStart(2, '0');
-    const ss = String(now.getSeconds()).padStart(2, '0');
-    document.getElementById('last-update').textContent = '上次更新: ' + hh + ':' + mm + ':' + ss;
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mm = String(now.getMinutes()).padStart(2, "0");
+    const ss = String(now.getSeconds()).padStart(2, "0");
+    els.lastUpdate.textContent = "上次更新: " + hh + ":" + mm + ":" + ss;
 }
 
-function authHeaders() {
-    return { 'Authorization': 'Bearer ' + token };
-}
-
-/* ─── 集群总览 ───────────────────────────────────────── */
 async function loadCluster() {
     try {
-        const resp = await fetch(API + '/api/cluster/status', { headers: authHeaders() });
-        if (resp.status === 401) { doLogout(); return; }
-        const data = await resp.json();
+        const data = await requestJson("/api/cluster/status", { headers: authHeaders() });
         renderCluster(data);
-    } catch (e) {
-        console.error('集群状态加载失败', e);
+    } catch (error) {
+        console.error("集群状态加载失败", error);
     }
 }
 
 function renderCluster(data) {
-    const s = data.summary;
-    document.getElementById('cluster-summary').textContent =
-        '总 GPU ' + s.total_gpu + ' 张 · 空闲 ' + s.free_gpu + ' 张 · 运行实例 ' + s.total_instances + ' 个';
+    const summary = data && data.summary ? data.summary : { total_gpu: 0, free_gpu: 0, total_instances: 0 };
+    els.clusterSummary.textContent = "总 GPU " + summary.total_gpu + " 张 · 空闲 " + summary.free_gpu + " 张 · 运行实例 " + summary.total_instances + " 个";
 
-    const tbody = document.getElementById('cluster-tbody');
-    if (!data.nodes || data.nodes.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">暂无节点数据</td></tr>';
+    const nodes = Array.isArray(data && data.nodes) ? data.nodes : [];
+    if (!nodes.length) {
+        els.clusterTbody.innerHTML = '<tr><td colspan="6" class="empty-state">暂无节点数据</td></tr>';
         return;
     }
 
-    let html = '';
-    data.nodes.forEach(function(n) {
-        const statusCls = n.online ? 'status-online' : 'status-offline';
-        const statusTxt = n.online ? '● 在线' : '○ 离线';
-        const gpuFreeStr = n.gpu_free + '/' + n.gpu_total;
-        const gpuCls = (n.gpu_free === 0 && n.online) ? 'gpu-zero' : '';
-        const webUrl = n.web_url ? (n.web_url + '?token=' + encodeURIComponent(token)) : '';
+    let html = "";
+    nodes.forEach(function(node) {
+        const statusCls = node.online ? "status-online" : "status-offline";
+        const statusTxt = node.online ? "● 在线" : "○ 离线";
+        const gpuCls = node.online && Number(node.gpu_free) === 0 ? "gpu-zero" : "";
+        const entryUrl = buildEntryUrl(node.web_url || "");
+        const isCurrent = state.currentNodeId && state.currentNodeId === node.node_id;
 
-        html += '<tr class="clickable-row" data-node="' + n.node_id + '" onclick="toggleExpand(this)">';
-        html += '<td>' + escHtml(n.name) + '</td>';
+        html += '<tr class="clickable-row' + (isCurrent ? ' expanded' : '') + '" data-node="' + escHtml(node.node_id) + '">';
+        html += '<td>' + escHtml(node.name || node.node_id) + (isCurrent ? ' <span class="tag primary">当前</span>' : '') + '</td>';
         html += '<td class="' + statusCls + '">' + statusTxt + '</td>';
-        html += '<td class="' + gpuCls + '">' + gpuFreeStr + '</td>';
-        html += '<td>' + escHtml(n.gpu_model) + '</td>';
-        html += '<td>' + n.instance_count + '</td>';
+        html += '<td class="' + gpuCls + '">' + escHtml(String(node.gpu_free)) + '/' + escHtml(String(node.gpu_total)) + '</td>';
+        html += '<td>' + escHtml(node.gpu_model || '—') + '</td>';
+        html += '<td>' + escHtml(String(node.instance_count || 0)) + '</td>';
         html += '<td>';
-        if (webUrl) {
-            html += '<a class="btn-primary" href="' + webUrl + '" target="_blank" onclick="event.stopPropagation()">进入管理</a>';
+        if (entryUrl) {
+            html += '<a class="btn-primary" href="' + escHtml(entryUrl) + '" target="_blank" onclick="event.stopPropagation()">' + (isCurrent ? '进入当前服务器' : '进入管理') + '</a>';
         } else {
             html += '<span style="color:#c0c4cc">—</span>';
         }
         html += '</td></tr>';
 
-        // 展开行 — GPU 详情
-        html += '<tr class="expand-row" data-expand="' + n.node_id + '">';
-        html += '<td colspan="6">';
-        if (n.gpus && n.gpus.length > 0) {
+        html += '<tr class="expand-row' + (isCurrent ? ' visible' : '') + '" data-expand="' + escHtml(node.node_id) + '"><td colspan="6">';
+        if (node.gpus && node.gpus.length > 0) {
             html += '<div class="gpu-grid">';
-            n.gpus.forEach(function(g) {
-                const cls = g.status === 'free' ? 'free' : 'used';
-                const label = 'GPU ' + g.index + ': ' + (g.status === 'free' ? '空闲' : (g.allocated_to || '占用中'));
+            node.gpus.forEach(function(gpu) {
+                const cls = gpu.status === 'free' ? 'free' : 'used';
+                const label = 'GPU ' + gpu.index + ': ' + (gpu.status === 'free' ? '空闲' : (gpu.allocated_to || '占用中'));
                 html += '<span class="gpu-chip ' + cls + '">' + escHtml(label) + '</span>';
             });
             html += '</div>';
@@ -420,67 +1125,82 @@ function renderCluster(data) {
         }
         html += '</td></tr>';
     });
+    els.clusterTbody.innerHTML = html;
 
-    tbody.innerHTML = html;
+    Array.prototype.forEach.call(els.clusterTbody.querySelectorAll("tr.clickable-row"), function(row) {
+        row.addEventListener("click", function() {
+            toggleExpand(row);
+        });
+    });
 }
 
 function toggleExpand(row) {
-    const nodeId = row.getAttribute('data-node');
+    const nodeId = row.getAttribute("data-node");
     const expandRow = document.querySelector('tr[data-expand="' + nodeId + '"]');
     if (!expandRow) return;
-    const isVisible = expandRow.classList.contains('visible');
-    expandRow.classList.toggle('visible');
-    row.classList.toggle('expanded');
+    const visible = expandRow.classList.contains("visible");
+    expandRow.classList.toggle("visible", !visible);
+    row.classList.toggle("expanded", !visible);
 }
 
-/* ─── 我的实例 ───────────────────────────────────────── */
 async function loadMyInstances() {
     try {
-        const resp = await fetch(API + '/api/cluster/my_instances', { headers: authHeaders() });
-        if (resp.status === 401) { doLogout(); return; }
-        const data = await resp.json();
+        const data = await requestJson("/api/cluster/my_instances", { headers: authHeaders() });
         renderInstances(data);
-    } catch (e) {
-        console.error('实例加载失败', e);
+    } catch (error) {
+        if (error && error.message && error.message.indexOf("token") >= 0) {
+            logout();
+            return;
+        }
+        console.error("实例加载失败", error);
     }
+}
+
+function formatExpire(value) {
+    if (!value) return "不限";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, "0");
+    const dd = String(date.getDate()).padStart(2, "0");
+    const hh = String(date.getHours()).padStart(2, "0");
+    const mi = String(date.getMinutes()).padStart(2, "0");
+    return yyyy + "-" + mm + "-" + dd + " " + hh + ":" + mi;
 }
 
 function renderInstances(data) {
-    const instances = data.instances || [];
-    const running = instances.filter(function(i) { return i.status === 'running'; });
-    document.getElementById('instance-summary').textContent = '共 ' + running.length + ' 个运行中';
+    const instances = Array.isArray(data && data.instances) ? data.instances : [];
+    const running = instances.filter(function(instance) { return instance.status === "running"; });
+    els.instanceSummary.textContent = "共 " + running.length + " 个运行中";
 
-    const tbody = document.getElementById('instance-tbody');
-    if (instances.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" class="empty-state">暂无运行中的实例</td></tr>';
+    if (!instances.length) {
+        els.instanceTbody.innerHTML = '<tr><td colspan="9" class="empty-state">暂无运行中的实例</td></tr>';
         return;
     }
 
-    let html = '';
-    instances.forEach(function(inst, idx) {
-        const stCls = inst.status === 'running' ? 'status-running' : 'status-stopped';
-        const stTxt = inst.status === 'running' ? '运行中' : '已停止';
-        // 优先使用 VPS 访问地址，其次是本地地址
-        const sshCmd = (inst.vps_access && inst.vps_access.ssh_cmd)
-            ? inst.vps_access.ssh_cmd
-            : (inst.ssh_cmd || inst.ssh_command || '—');
-        const pwd = inst.password || inst.ssh_password || '';
-        const expire = inst.expire_time || inst.expires_at || '—';
-        const gpuCount = inst.gpu_count || inst.gpu_num || '—';
-        const mem = inst.memory || inst.mem || '—';
-        const image = inst.image || '—';
-        const name = inst.name || inst.instance_name || '—';
-        const pwdId = 'pwd-' + idx;
+    let html = "";
+    instances.forEach(function(instance, index) {
+        const stCls = instance.status === "running" ? "status-running" : "status-stopped";
+        const stTxt = instance.status === "running" ? "运行中" : "已停止";
+        const sshCmd = instance.vps_access && instance.vps_access.ssh_cmd
+            ? instance.vps_access.ssh_cmd
+            : (instance.ssh_command || instance.ssh_cmd || "—");
+        const gpuCount = Array.isArray(instance.gpu_indices) ? instance.gpu_indices.length : Number(instance.gpu_count || 0);
+        const memoryGb = instance.memory_gb != null ? instance.memory_gb + "G" : (instance.memory || "—");
+        const image = instance.image_name || instance.image || "—";
+        const name = instance.container_name || instance.name || instance.instance_name || "—";
+        const pwd = instance.ssh_password || instance.password || "";
+        const pwdId = "pwd-" + index;
 
-        html += '<tr>';
-        html += '<td>' + escHtml(inst.node_name || inst.node_id || '—') + '</td>';
-        html += '<td>' + escHtml(name) + '</td>';
-        html += '<td>' + escHtml(String(gpuCount)) + '</td>';
-        html += '<td>' + escHtml(String(mem)) + '</td>';
-        html += '<td>' + escHtml(image) + '</td>';
-        html += '<td class="' + stCls + '">' + stTxt + '</td>';
-        html += '<td>';
-        if (sshCmd !== '—') {
+        html += "<tr>";
+        html += "<td>" + escHtml(instance.node_name || instance.node_id || "—") + "</td>";
+        html += "<td>" + escHtml(name) + "</td>";
+        html += "<td>" + escHtml(String(gpuCount)) + "</td>";
+        html += "<td>" + escHtml(String(memoryGb)) + "</td>";
+        html += "<td>" + escHtml(image) + "</td>";
+        html += "<td class=\"" + stCls + "\">" + stTxt + "</td>";
+        html += "<td>";
+        if (sshCmd !== "—") {
             html += '<div class="ssh-cell">';
             html += '<span class="ssh-cmd">' + escHtml(sshCmd) + '</span>';
             html += '<button class="copy-btn" onclick="copyText(\'' + escJs(sshCmd) + '\', this)">📋</button>';
@@ -488,64 +1208,62 @@ function renderInstances(data) {
         } else {
             html += '—';
         }
-        html += '</td>';
-        html += '<td>';
+        html += "</td>";
+        html += "<td>";
         if (pwd) {
             html += '<div class="pwd-cell">';
             html += '<span id="' + pwdId + '">****</span>';
-            html += '<button class="pwd-toggle" onclick="togglePwd(\'' + pwdId + '\', \'' + escJs(pwd) + '\')">👁</button>';
+            html += "<button class=\"pwd-toggle\" onclick=\"togglePwd('" + pwdId + "', '" + escJs(pwd) + "')\">👁</button>";
             html += '</div>';
         } else {
             html += '—';
         }
-        html += '</td>';
-        html += '<td>' + escHtml(String(expire)) + '</td>';
-        html += '</tr>';
+        html += "</td>";
+        html += "<td>" + escHtml(formatExpire(instance.expire_at || instance.expires_at || instance.expire_time || "")) + "</td>";
+        html += "</tr>";
     });
 
-    tbody.innerHTML = html;
-}
-
-/* ═══════════════════════════════════════════════════════
-   工具函数
-   ═══════════════════════════════════════════════════════ */
-function escHtml(s) {
-    var d = document.createElement('div');
-    d.appendChild(document.createTextNode(s));
-    return d.innerHTML;
-}
-
-function escJs(s) {
-    return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
-}
-
-function copyText(text, btn) {
-    navigator.clipboard.writeText(text).then(function() {
-        var orig = btn.textContent;
-        btn.textContent = '✓';
-        setTimeout(function() { btn.textContent = orig; }, 1500);
-    }).catch(function() {
-        // fallback
-        var ta = document.createElement('textarea');
-        ta.value = text;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        var orig = btn.textContent;
-        btn.textContent = '✓';
-        setTimeout(function() { btn.textContent = orig; }, 1500);
-    });
+    els.instanceTbody.innerHTML = html;
 }
 
 function togglePwd(id, realPwd) {
-    var el = document.getElementById(id);
-    if (el.textContent === '****') {
-        el.textContent = realPwd;
-    } else {
-        el.textContent = '****';
-    }
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = el.textContent === "****" ? realPwd : "****";
 }
+
+window.copyText = copyText;
+window.togglePwd = togglePwd;
+
+els.loginTab.addEventListener("click", function() { switchTab("login"); });
+els.registerTab.addEventListener("click", function() { switchTab("register"); });
+els.loginForm.addEventListener("submit", doLogin);
+els.registerForm.addEventListener("submit", doRegister);
+els.logoutBtn.addEventListener("click", logout);
+els.enterServerBtn.addEventListener("click", openCurrentServer);
+els.bannerEnterBtn.addEventListener("click", openCurrentServer);
+
+document.getElementById("login-password").addEventListener("keydown", function(event) {
+    if (event.key === "Enter") doLogin(event);
+});
+document.getElementById("login-username").addEventListener("keydown", function(event) {
+    if (event.key === "Enter") document.getElementById("login-password").focus();
+});
+
+(async function init() {
+    await loadAuthNodes();
+    if (state.token && state.user) {
+        showMain();
+        renderHeader();
+        try {
+            await loadAll();
+        } catch (error) {
+            logout();
+        }
+    } else {
+        showLogin();
+    }
+})();
 </script>
 </body>
 </html>

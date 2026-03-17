@@ -1,34 +1,61 @@
-"""
-认证模块 — JWT 生成 / 验证 / 登录端点
-与各 gpu_manager 节点共享 JWT_SECRET，实现 SSO 免登录跳转。
-"""
+"""认证模块 - JWT 验证、节点登录代理与注册代理。"""
 
+from __future__ import annotations
+
+import asyncio
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import config
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+AUTH_REQUEST_TIMEOUT = 8.0
 
 
 # ── Pydantic 模型 ──────────────────────────────────────────────────────────
 
+
 class TokenResponse(BaseModel):
     """登录成功返回的 token 响应体。"""
+
     access_token: str
     token_type: str = "bearer"
     username: str
     is_admin: bool
+    user: dict[str, Any] | None = None
+    node_id: str | None = None
+    node_name: str | None = None
+    entry_url: str | None = None
+    message: str | None = None
+
+
+class NodeLoginRequest(BaseModel):
+    """用户登录到指定节点。"""
+
+    node_id: str = Field(min_length=1, max_length=64)
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class NodeRegisterRequest(BaseModel):
+    """用户在指定节点注册账号。"""
+
+    node_id: str = Field(min_length=1, max_length=64)
+    username: str = Field(min_length=3, max_length=64, pattern=r"^[A-Za-z0-9_]+$")
+    email: str
+    password: str = Field(min_length=6, max_length=128)
 
 
 # ── JWT 工具函数 ───────────────────────────────────────────────────────────
+
 
 def create_token(username: str, is_admin: bool = False) -> str:
     """生成 JWT token。
@@ -47,6 +74,144 @@ def create_token(username: str, is_admin: bool = False) -> str:
         "exp": expire,
     }
     return jwt.encode(payload, config.JWT_SECRET, algorithm=config.JWT_ALGORITHM)
+
+
+def _get_node_config(node_id: str) -> dict[str, Any]:
+    """返回指定节点配置，不存在时抛出 404。"""
+    node_cfg = config.NODES.get(node_id)
+    if node_cfg is None:
+        raise HTTPException(status_code=404, detail="节点不存在")
+    return node_cfg
+
+
+def _build_entry_url(node_id: str, token: str) -> str | None:
+    """构造进入节点 Web 管理页的免登录地址。"""
+    base_url = config.NODE_WEB_URLS.get(node_id)
+    if not base_url:
+        return None
+    separator = "&" if "?" in base_url else "?"
+    return f"{base_url}{separator}token={token}"
+
+
+def _extract_error_detail(response: httpx.Response) -> str:
+    """从节点响应中提取可读错误信息。"""
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+
+    if isinstance(payload, dict):
+        detail = payload.get("detail") or payload.get("message")
+        if isinstance(detail, str) and detail:
+            return detail
+    text = response.text.strip()
+    return text or "请求失败"
+
+
+async def _request_node_json(
+    node_id: str,
+    method: str,
+    path: str,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """向指定节点发送 JSON 请求并返回响应。"""
+    node_cfg = _get_node_config(node_id)
+    url = f"{node_cfg['api']}{path}"
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.request(
+                method=method,
+                url=url,
+                json=payload,
+                timeout=AUTH_REQUEST_TIMEOUT,
+            )
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=503, detail=f"节点 {node_cfg['name']} 暂时不可用"
+        ) from exc
+
+    if response.status_code >= 400:
+        raise HTTPException(
+            status_code=response.status_code,
+            detail=_extract_error_detail(response),
+        )
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail="节点返回了无效响应") from exc
+
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=502, detail="节点返回格式不正确")
+    return data
+
+
+def _build_token_response(
+    node_id: str,
+    access_token: str,
+    user_payload: dict[str, Any] | None,
+    message: str | None = None,
+) -> TokenResponse:
+    """统一组装登录/注册成功响应。"""
+    node_cfg = _get_node_config(node_id)
+    user_info = user_payload or {}
+    username = str(user_info.get("username") or "")
+    is_admin = bool(user_info.get("is_admin", False))
+    return TokenResponse(
+        access_token=access_token,
+        username=username,
+        is_admin=is_admin,
+        user=user_payload,
+        node_id=node_id,
+        node_name=str(node_cfg.get("name") or node_id),
+        entry_url=_build_entry_url(node_id, access_token),
+        message=message,
+    )
+
+
+async def _login_to_node(node_id: str, username: str, password: str) -> TokenResponse:
+    """向节点执行登录并返回聚合后的响应。"""
+    data = await _request_node_json(
+        node_id,
+        "POST",
+        "/api/auth/login",
+        {"username": username, "password": password},
+    )
+    access_token = data.get("access_token")
+    if not isinstance(access_token, str) or not access_token:
+        raise HTTPException(status_code=502, detail="节点未返回 access_token")
+    user_payload = data.get("user")
+    if user_payload is not None and not isinstance(user_payload, dict):
+        user_payload = None
+    return _build_token_response(node_id, access_token, user_payload)
+
+
+async def _fetch_node_auth_meta(
+    client: httpx.AsyncClient,
+    node_id: str,
+    node_cfg: dict[str, Any],
+) -> dict[str, Any]:
+    """查询节点注册能力与在线状态，供前端认证页展示。"""
+    result = {
+        "node_id": node_id,
+        "name": node_cfg.get("name", node_id),
+        "web_url": config.NODE_WEB_URLS.get(node_id, ""),
+        "online": False,
+        "allow_register": False,
+    }
+    try:
+        response = await client.get(
+            f"{node_cfg['api']}/api/meta",
+            timeout=3.0,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, dict):
+            result["allow_register"] = bool(payload.get("allow_register", False))
+        result["online"] = True
+    except Exception:
+        pass
+    return result
 
 
 def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> str:
@@ -68,7 +233,9 @@ def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> str:
             headers={"WWW-Authenticate": "Bearer"},
         )
     try:
-        payload = jwt.decode(token, config.JWT_SECRET, algorithms=[config.JWT_ALGORITHM])
+        payload = jwt.decode(
+            token, config.JWT_SECRET, algorithms=[config.JWT_ALGORITHM]
+        )
         username: Optional[str] = payload.get("sub")
         if username is None:
             raise HTTPException(
@@ -96,7 +263,9 @@ def get_optional_user(token: Optional[str] = Depends(oauth2_scheme)) -> Optional
     if token is None:
         return None
     try:
-        payload = jwt.decode(token, config.JWT_SECRET, algorithms=[config.JWT_ALGORITHM])
+        payload = jwt.decode(
+            token, config.JWT_SECRET, algorithms=[config.JWT_ALGORITHM]
+        )
         return payload.get("sub")
     except JWTError:
         return None
@@ -104,33 +273,48 @@ def get_optional_user(token: Optional[str] = Depends(oauth2_scheme)) -> Optional
 
 # ── 登录端点 ───────────────────────────────────────────────────────────────
 
+
+@router.get("/nodes")
+async def list_auth_nodes() -> dict[str, list[dict[str, Any]]]:
+    """返回可登录/注册的节点列表。"""
+    async with httpx.AsyncClient() as client:
+        tasks = [
+            _fetch_node_auth_meta(client, node_id, node_cfg)
+            for node_id, node_cfg in config.NODES.items()
+        ]
+        nodes = await asyncio.gather(*tasks)
+    return {"nodes": nodes}
+
+
 @router.post("/login", response_model=TokenResponse)
-async def login(form: OAuth2PasswordRequestForm = Depends()) -> TokenResponse:
-    """管理员登录端点。
+async def login(payload: NodeLoginRequest) -> TokenResponse:
+    """将登录请求转发到用户选择的 Servermanager 节点。"""
+    return await _login_to_node(payload.node_id, payload.username, payload.password)
 
-    目前仅支持 config 中配置的管理员账号，后续可对接各节点用户体系。
 
-    Args:
-        form: OAuth2 表单（username + password）
-
-    Returns:
-        包含 access_token 的响应体
-
-    Raises:
-        HTTPException: 用户名或密码错误时返回 401
-    """
-    if (
-        form.username != config.ADMIN_USERNAME
-        or form.password != config.ADMIN_PASSWORD
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="用户名或密码错误",
-        )
-
-    token = create_token(username=form.username, is_admin=True)
-    return TokenResponse(
-        access_token=token,
-        username=form.username,
-        is_admin=True,
+@router.post("/register", response_model=TokenResponse)
+async def register(payload: NodeRegisterRequest) -> TokenResponse:
+    """在指定节点注册账号，并自动登录返回共享 JWT。"""
+    await _request_node_json(
+        payload.node_id,
+        "POST",
+        "/api/auth/register",
+        {
+            "username": payload.username,
+            "email": payload.email,
+            "password": payload.password,
+        },
     )
+    token_response = await _login_to_node(
+        payload.node_id,
+        payload.username,
+        payload.password,
+    )
+    token_response.message = "注册成功，已自动登录"
+    return token_response
+
+
+@router.get("/me")
+async def me(username: str = Depends(get_current_user)) -> dict[str, Any]:
+    """返回当前聚合层登录用户名。"""
+    return {"username": username}

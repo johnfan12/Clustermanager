@@ -8,6 +8,83 @@
 ## 架构说明
 
 ```
+
+## Quickstart
+
+下面这组命令面向"1 台 VPS + 1 台 GPU 节点"，目标是命令执行完即可访问聚合页，并在节点创建实例后直接看到 VPS SSH 命令。
+
+先在 VPS 设置变量：
+
+```bash
+export VPS_IP=YOUR_VPS_PUBLIC_IP
+export JWT_SECRET=change-this-to-a-strong-secret-key
+export INTERNAL_SERVICE_TOKEN=change-this-internal-service-token
+export FRP_TOKEN=change-this-frp-token
+export CLUSTER_ADMIN_PASSWORD=change-this-cluster-admin-password
+export NODE1_ADMIN_TOKEN=PASTE_SERVERMANAGER_ADMIN_ACCESS_TOKEN_HERE
+```
+
+然后在 `Clustermanager` 目录执行：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+mkdir -p logs
+sudo mkdir -p /etc/frp
+
+cat > .env <<EOF
+JWT_SECRET=${JWT_SECRET}
+JWT_ALGORITHM=HS256
+JWT_EXPIRE_HOURS=24
+INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN}
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=${CLUSTER_ADMIN_PASSWORD}
+FRP_ENABLED=true
+FRP_SERVER_ADDR=localhost
+FRP_SERVER_PORT=7000
+FRP_TOKEN=${FRP_TOKEN}
+FRP_CONFIG_DIR=/etc/frp
+FRP_CONTAINER_PORT_RANGE=30000-39999
+VPS_PUBLIC_IP=${VPS_IP}
+NODES_JSON={"node1":{"name":"node1","api":"http://127.0.0.1:18881","admin_token":"${NODE1_ADMIN_TOKEN}","gpu_count":1,"gpu_model":"GPU"}}
+NODE_WEB_URLS_JSON={"node1":"http://${VPS_IP}:18881"}
+EOF
+
+cd frp
+sudo bash install.sh
+cd ..
+
+sudo sed -i "s/^token = .*/token = ${FRP_TOKEN}/" /etc/frp/frps.ini
+sudo sed -i 's/^allow_ports = .*/allow_ports = 18881,30000-39999/' /etc/frp/frps.ini
+
+sudo systemctl enable --now frps frpc-visitors
+
+chmod +x start.sh
+nohup ./start.sh > logs/clustermanager.log 2>&1 &
+sleep 5
+
+curl http://127.0.0.1:9999/
+curl http://127.0.0.1:18881/api/frp/containers -H "X-Internal-Token: ${INTERNAL_SERVICE_TOKEN}"
+```
+
+如果最后一条 `curl` 能返回节点容器列表，说明：
+
+- VPS -> 节点 API 穿透通了
+- `Clustermanager` 能读到节点容器 FRP 信息
+- 后续创建实例后会自动生成 VPS SSH 命令
+
+浏览器访问：
+
+```text
+http://YOUR_VPS_PUBLIC_IP:9999
+```
+
+登录账号：
+
+- 用户名：`admin`
+- 密码：你刚设置的 `CLUSTER_ADMIN_PASSWORD`
 ┌───────────────────────────────────┐
 │          公网 VPS (本项目)          │
 │                                   │
@@ -77,7 +154,7 @@ nano .env
 | `ADMIN_PASSWORD` | 跳板机管理员密码 | `your-admin-password` |
 | `FRP_TOKEN` | 与 frps.ini 一致 | `your-frp-token` |
 | `VPS_PUBLIC_IP` | VPS 公网 IP | `1.2.3.4` |
-| `NODES_JSON` | 节点列表（可选） | `{"node1": {...}}` |
+| `NODES_JSON` | 节点列表（推荐使用 `127.0.0.1:18881`） | `{"node1": {...}}` |
 
 启动服务：
 ```bash
@@ -148,7 +225,7 @@ FRP_TOKEN=your-frp-secret-token
 sudo systemctl enable --now frpc-containers
 ```
 
-> **注意**：Servermanager 和 Clustermanager 的 `JWT_SECRET` 必须一致，这是 SSO 的前提。
+> **注意**：Servermanager 和 Clustermanager 的 `JWT_SECRET`、`INTERNAL_SERVICE_TOKEN` 必须一致，这是 SSO 和服务间回写的前提。
 
 ---
 
@@ -184,13 +261,13 @@ NODE_WEB_URLS_JSON='{
 
 ### 3.2 admin_token 的获取方法
 
-`admin_token` 需要从对应节点的 Servermanager 获取：
+`admin_token` 仍用于聚合节点 GPU / 管理员实例列表，需从对应节点的 Servermanager 获取：
 
 ```bash
 # 在 VPS 上（frp 穿透已建立后）
-curl -X POST http://localhost:18881/api/auth/login \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=admin&password=节点管理员密码"
+curl -X POST http://127.0.0.1:18881/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"节点管理员密码"}'
 ```
 
 返回的 `access_token` 即为该节点的 `admin_token`，填入 `.env` 或 `config.py` 对应节点配置中。
@@ -238,11 +315,11 @@ curl -X POST http://localhost:18881/api/auth/login \
 
 ```bash
 # 查询所有容器的访问映射
-curl -H "Authorization: Bearer TOKEN" http://localhost:8000/api/frp/containers
+curl -H "Authorization: Bearer TOKEN" http://127.0.0.1:9999/api/frp/containers
 
 # 查询单个实例的连接信息
 curl -H "Authorization: Bearer TOKEN" \
-  http://localhost:8000/api/cluster/instances/node1_gpu_user_xxx/connect
+  http://127.0.0.1:9999/api/cluster/instances/node1_gpu_user_xxx/connect
 ```
 
 或通过 Web 界面查看。
@@ -250,8 +327,8 @@ curl -H "Authorization: Bearer TOKEN" \
 ### Q: 如何手动同步 FRP 配置
 ```bash
 # 在 Servermanager 节点上
-curl -H "Authorization: Bearer TOKEN" http://localhost:8888/api/frp/sync
+curl -H "X-Internal-Token: YOUR_INTERNAL_SERVICE_TOKEN" http://127.0.0.1:18881/api/frp/sync
 
 # 在 VPS 上
-curl -H "Authorization: Bearer TOKEN" http://localhost:8000/api/frp/sync
+curl -H "Authorization: Bearer TOKEN" http://127.0.0.1:9999/api/frp/sync
 ```
