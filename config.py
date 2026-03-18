@@ -113,6 +113,12 @@ FRP_TOKEN: str = os.environ.get("FRP_TOKEN", "your-frp-secret-token")
 FRP_CONFIG_DIR: str = os.environ.get("FRP_CONFIG_DIR", "/etc/frp")
 FRP_CONFIG_FILE: str = f"{FRP_CONFIG_DIR}/frpc-visitors.ini"
 
+# 当 reload/HUP 都失败时，是否自动执行 restart 作为兜底。
+# 设为 false 可避免打断已有 SSH，会话不中断优先；缺点是新隧道可能延迟生效。
+FRP_VISITORS_RESTART_FALLBACK: bool = (
+    os.environ.get("FRP_VISITORS_RESTART_FALLBACK", "false").lower() == "true"
+)
+
 # 容器访问端口范围（在 VPS 上暴露）
 _frp_port_range = os.environ.get("FRP_CONTAINER_PORT_RANGE", "30000-39999").split("-")
 FRP_CONTAINER_PORT_RANGE: tuple[int, int] = (
