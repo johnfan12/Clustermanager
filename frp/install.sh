@@ -7,15 +7,22 @@ FRP_VERSION="0.58.1"
 FRP_ARCH="linux_amd64"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+install_binary_safe() {
+  local src="$1"
+  local dst="$2"
+  local tmp_dst="${dst}.new"
+  sudo install -m 0755 "$src" "$tmp_dst"
+  sudo mv -f "$tmp_dst" "$dst"
+}
+
 echo "=== Installing FRP v${FRP_VERSION} ==="
 
 # 下载并安装 frp
 cd /tmp
 wget -q "https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_${FRP_ARCH}.tar.gz"
 tar -xzf "frp_${FRP_VERSION}_${FRP_ARCH}.tar.gz"
-sudo cp "frp_${FRP_VERSION}_${FRP_ARCH}/frps" /usr/local/bin/
-sudo cp "frp_${FRP_VERSION}_${FRP_ARCH}/frpc" /usr/local/bin/
-sudo chmod +x /usr/local/bin/frps /usr/local/bin/frpc
+install_binary_safe "frp_${FRP_VERSION}_${FRP_ARCH}/frps" "/usr/local/bin/frps"
+install_binary_safe "frp_${FRP_VERSION}_${FRP_ARCH}/frpc" "/usr/local/bin/frpc"
 rm -rf "frp_${FRP_VERSION}_${FRP_ARCH}"
 
 # 创建配置目录
