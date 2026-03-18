@@ -13,6 +13,7 @@ from typing import Any
 import httpx
 
 from config import (
+    FRP_CONFIG_FILE,
     FRP_CONTAINER_PORT_RANGE,
     FRP_ENABLED,
     FRP_SERVER_ADDR,
@@ -111,13 +112,32 @@ class FrpVisitorManager:
 
     def _load_existing_visitor_ports(self) -> dict[str, int]:
         ports: dict[str, int] = {}
-        if not self.instance_config_dir.exists():
+        if self.instance_config_dir.exists():
+            for cfg_file in sorted(self.instance_config_dir.glob("*.ini")):
+                try:
+                    config = configparser.ConfigParser()
+                    config.read(cfg_file)
+                    for section in config.sections():
+                        if not section.startswith("visitor-"):
+                            continue
+                        name = section.removeprefix("visitor-")
+                        bind_port = config.getint(section, "bind_port", fallback=0)
+                        if name and bind_port:
+                            ports[name] = bind_port
+                            break
+                except Exception as exc:
+                    LOGGER.warning(
+                        "Failed to parse visitor config %s: %s", cfg_file, exc
+                    )
+
+        if ports:
             return ports
 
-        for cfg_file in sorted(self.instance_config_dir.glob("*.ini")):
+        legacy_file = Path(FRP_CONFIG_FILE)
+        if legacy_file.exists():
             try:
                 config = configparser.ConfigParser()
-                config.read(cfg_file)
+                config.read(legacy_file)
                 for section in config.sections():
                     if not section.startswith("visitor-"):
                         continue
@@ -125,9 +145,12 @@ class FrpVisitorManager:
                     bind_port = config.getint(section, "bind_port", fallback=0)
                     if name and bind_port:
                         ports[name] = bind_port
-                        break
             except Exception as exc:
-                LOGGER.warning("Failed to parse visitor config %s: %s", cfg_file, exc)
+                LOGGER.warning(
+                    "Failed to parse legacy visitor config %s: %s",
+                    legacy_file,
+                    exc,
+                )
         return ports
 
     def allocate_port(
