@@ -13,6 +13,12 @@ from jose import JWTError, jwt
 from pydantic import BaseModel, Field
 
 import config
+from user_store import (
+    get_cluster_user,
+    init_user_store,
+    upsert_cluster_user,
+    verify_cluster_user_password,
+)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -186,6 +192,25 @@ async def _login_to_node(node_id: str, username: str, password: str) -> TokenRes
     return _build_token_response(node_id, access_token, user_payload)
 
 
+async def _register_to_node(
+    node_id: str,
+    username: str,
+    email: str,
+    password: str,
+) -> None:
+    """Register an account on the target node."""
+    await _request_node_json(
+        node_id,
+        "POST",
+        "/api/auth/register",
+        {
+            "username": username,
+            "email": email,
+            "password": password,
+        },
+    )
+
+
 async def _fetch_node_auth_meta(
     client: httpx.AsyncClient,
     node_id: str,
@@ -289,21 +314,51 @@ async def list_auth_nodes() -> dict[str, list[dict[str, Any]]]:
 @router.post("/login", response_model=TokenResponse)
 async def login(payload: NodeLoginRequest) -> TokenResponse:
     """将登录请求转发到用户选择的 Servermanager 节点。"""
-    return await _login_to_node(payload.node_id, payload.username, payload.password)
+    try:
+        return await _login_to_node(payload.node_id, payload.username, payload.password)
+    except HTTPException as exc:
+        should_try_provision = (
+            config.AUTO_PROVISION_ON_NODE_LOGIN and exc.status_code in (401, 404)
+        )
+        if not should_try_provision:
+            raise
+
+        central_user = get_cluster_user(payload.username)
+        if central_user is None:
+            raise
+
+        if not verify_cluster_user_password(payload.username, payload.password):
+            raise HTTPException(status_code=401, detail="用户名或密码错误") from exc
+
+        try:
+            await _register_to_node(
+                payload.node_id,
+                payload.username,
+                central_user["email"],
+                payload.password,
+            )
+        except HTTPException as reg_exc:
+            if reg_exc.status_code not in (400, 409):
+                raise
+
+        token_response = await _login_to_node(
+            payload.node_id,
+            payload.username,
+            payload.password,
+        )
+        token_response.message = "已自动将账号同步到该节点"
+        return token_response
 
 
 @router.post("/register", response_model=TokenResponse)
 async def register(payload: NodeRegisterRequest) -> TokenResponse:
     """在指定节点注册账号，并自动登录返回共享 JWT。"""
-    await _request_node_json(
+    upsert_cluster_user(payload.username, payload.email, payload.password)
+    await _register_to_node(
         payload.node_id,
-        "POST",
-        "/api/auth/register",
-        {
-            "username": payload.username,
-            "email": payload.email,
-            "password": payload.password,
-        },
+        payload.username,
+        payload.email,
+        payload.password,
     )
     token_response = await _login_to_node(
         payload.node_id,
@@ -318,3 +373,9 @@ async def register(payload: NodeRegisterRequest) -> TokenResponse:
 async def me(username: str = Depends(get_current_user)) -> dict[str, Any]:
     """返回当前聚合层登录用户名。"""
     return {"username": username}
+
+
+@router.on_event("startup")
+async def _auth_startup() -> None:
+    """Initialize central user store for node auto-provision."""
+    init_user_store()

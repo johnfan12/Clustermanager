@@ -84,6 +84,14 @@ NODES: dict = _load_nodes_from_env() or {
 ADMIN_USERNAME: str = os.environ.get("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD: str = os.environ.get("ADMIN_PASSWORD", "admin123")
 
+# 中央用户库（用于跨节点自动补建账号）
+CLUSTER_USER_DB_PATH: str = os.environ.get(
+    "CLUSTER_USER_DB_PATH", str(BASE_DIR / "runtime" / "cluster_users.db")
+)
+AUTO_PROVISION_ON_NODE_LOGIN: bool = (
+    os.environ.get("AUTO_PROVISION_ON_NODE_LOGIN", "true").lower() == "true"
+)
+
 # ============================================================================
 # 各节点 gpu_manager 的 Web 访问地址（前端"进入管理"按钮跳转）
 # 可以通过 .env 中的 NODE_WEB_URLS_JSON 覆盖

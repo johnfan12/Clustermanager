@@ -272,6 +272,27 @@ curl -X POST http://127.0.0.1:18881/api/auth/login \
 
 返回的 `access_token` 即为该节点的 `admin_token`，填入 `.env` 或 `config.py` 对应节点配置中。
 
+### 3.3 跨节点注册同步（方案1：中心用户库 + 首次登录自动补建）
+
+当前版本支持你选择的方案 1：
+
+- 用户在 `Clustermanager` 注册时，会同时：
+  - 注册到当前所选节点
+  - 写入 VPS 本地中心用户库（`CLUSTER_USER_DB_PATH`）
+- 当用户后续登录到一个新节点，如果该节点还没有这个账号：
+  - `Clustermanager` 会先验证中心库密码
+  - 然后自动调用该节点注册接口补建账号
+  - 再自动登录并返回 token
+
+默认配置（见 `.env.copy`）：
+
+```env
+CLUSTER_USER_DB_PATH=./runtime/cluster_users.db
+AUTO_PROVISION_ON_NODE_LOGIN=true
+```
+
+> 注意：中心库保存在 VPS，本机请做好备份；如果你关闭 `AUTO_PROVISION_ON_NODE_LOGIN`，则回到“每个节点手动注册一次”的行为。
+
 ---
 
 ## 4. SSO 原理说明
