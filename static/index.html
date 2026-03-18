@@ -4,461 +4,393 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GPU 集群管理</title>
-<meta name="description" content="GPU 集群跳板机聚合管理 - 注册、登录并进入目标服务器">
+<meta name="description" content="GPU 集群管理平台 — 选择服务器，注册或登录，一键进入">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    background: #ffffff;
-    color: #303133;
-    font-size: 14px;
-    line-height: 1.6;
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0c0e14;
+  --surface:#151820;
+  --surface2:#1c2030;
+  --border:rgba(255,255,255,.06);
+  --border-hl:rgba(99,140,255,.3);
+  --text:#e8eaef;
+  --muted:#7a8299;
+  --accent:#638cff;
+  --accent-glow:rgba(99,140,255,.18);
+  --green:#34d399;
+  --green-bg:rgba(52,211,153,.12);
+  --red:#f87171;
+  --red-bg:rgba(248,113,113,.12);
+  --radius:12px;
+  --transition:.22s cubic-bezier(.4,0,.2,1);
+  --shadow:0 8px 32px rgba(0,0,0,.35);
 }
-a { color: #409eff; text-decoration: none; }
-button { cursor: pointer; border: none; outline: none; font-size: 14px; }
+html{height:100%}
+body{
+  font-family:'Inter',system-ui,-apple-system,sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  font-size:14px;
+  line-height:1.6;
+  min-height:100vh;
+}
+a{color:var(--accent);text-decoration:none}
+button{cursor:pointer;border:none;outline:none;font-family:inherit;font-size:14px}
+input{font-family:inherit}
 
-#auth-page {
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 28px 18px;
-    background: linear-gradient(180deg, #f7f8fa 0%, #eef5ff 100%);
+/* ── Auth Page ─────────────────────────────── */
+#auth-page{
+  min-height:100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:24px;
+  background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(99,140,255,.08),transparent),var(--bg);
 }
-.auth-shell {
-    width: min(1100px, 100%);
-    display: grid;
-    grid-template-columns: 1.15fr 0.95fr;
-    background: #fff;
-    border: 1px solid #e4e7ed;
-    border-radius: 14px;
-    overflow: hidden;
-    box-shadow: 0 12px 36px rgba(31, 45, 61, 0.08);
-}
-.auth-side {
-    padding: 34px 34px 30px;
-    background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
-    border-right: 1px solid #e4e7ed;
-}
-.auth-side h1 {
-    font-size: 28px;
-    line-height: 1.2;
-    color: #303133;
-    margin-bottom: 12px;
-}
-.auth-side p {
-    color: #606266;
-    margin-bottom: 20px;
-}
-.flow-box {
-    padding: 14px 16px;
-    border: 1px solid #d9ecff;
-    border-radius: 10px;
-    background: #f4f9ff;
-    color: #409eff;
-    margin-bottom: 18px;
-}
-.flow-box strong { display: block; margin-bottom: 4px; }
-.point-list {
-    display: grid;
-    gap: 10px;
-    margin-bottom: 22px;
-}
-.point {
-    padding: 12px 14px;
-    border: 1px solid #ebeef5;
-    border-radius: 10px;
-    background: #fff;
-    color: #606266;
-}
-.section-title {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 10px;
-}
-.section-title h2 {
-    font-size: 15px;
-    color: #303133;
-}
-.section-tip {
-    color: #909399;
-    font-size: 12px;
-}
-.node-list {
-    display: grid;
-    gap: 10px;
-}
-.node-card {
-    border: 1px solid #e4e7ed;
-    border-radius: 10px;
-    background: #fff;
-    padding: 14px;
-    transition: all .2s ease;
-}
-.node-card:hover { border-color: #b3d8ff; box-shadow: 0 6px 18px rgba(64, 158, 255, 0.08); }
-.node-card.selected {
-    border-color: #409eff;
-    background: #ecf5ff;
-    box-shadow: 0 10px 24px rgba(64, 158, 255, 0.12);
-}
-.node-card.offline { opacity: .72; }
-.node-card-header {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 8px;
-}
-.node-name { font-weight: 600; color: #303133; }
-.node-meta { color: #909399; font-size: 12px; }
-.node-status {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    white-space: nowrap;
-}
-.dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    display: inline-block;
-}
-.dot.online { background: #67c23a; }
-.dot.offline { background: #c0c4cc; }
-.node-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-.tag {
-    display: inline-flex;
-    align-items: center;
-    padding: 2px 8px;
-    border-radius: 999px;
-    font-size: 12px;
-    border: 1px solid #dcdfe6;
-    color: #606266;
-    background: #f5f7fa;
-}
-.tag.primary {
-    border-color: #b3d8ff;
-    color: #409eff;
-    background: #ecf5ff;
+.auth-shell{
+  width:min(1120px,100%);
+  display:grid;
+  grid-template-columns:1.1fr .9fr;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:16px;
+  overflow:hidden;
+  box-shadow:var(--shadow),0 0 80px rgba(99,140,255,.04);
 }
 
-.auth-main {
-    padding: 34px 34px 30px;
+/* ── Left Side ─────────────────────────────── */
+.auth-side{
+  padding:40px 36px 36px;
+  background:linear-gradient(180deg,var(--surface2) 0%,var(--surface) 100%);
+  border-right:1px solid var(--border);
+  display:flex;
+  flex-direction:column;
 }
-.tabs {
-    display: inline-flex;
-    border: 1px solid #dcdfe6;
-    border-radius: 10px;
-    padding: 4px;
-    background: #f7f8fa;
-    margin-bottom: 18px;
+.auth-side h1{
+  font-size:26px;font-weight:700;color:#fff;
+  margin-bottom:8px;letter-spacing:-.02em;
 }
-.tab {
-    min-width: 104px;
-    padding: 10px 14px;
-    border-radius: 8px;
-    background: transparent;
-    color: #606266;
-    font-weight: 500;
+.auth-side .subtitle{
+  color:var(--muted);margin-bottom:24px;font-size:14px;
 }
-.tab.active {
-    background: #409eff;
-    color: #fff;
+.steps-bar{
+  display:flex;align-items:center;gap:0;
+  padding:14px 18px;
+  background:var(--accent-glow);
+  border:1px solid var(--border-hl);
+  border-radius:var(--radius);
+  margin-bottom:24px;
+  font-size:13px;color:var(--accent);font-weight:500;
 }
-.auth-panel-title {
-    font-size: 22px;
-    color: #303133;
-    margin-bottom: 8px;
-}
-.auth-panel-subtitle {
-    color: #909399;
-    margin-bottom: 18px;
-}
-.selected-node-box {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 12px 14px;
-    border: 1px solid #d9ecff;
-    border-radius: 10px;
-    background: #f4f9ff;
-    margin-bottom: 18px;
-}
-.selected-node-text strong { color: #303133; }
-.selected-node-text div { color: #909399; font-size: 12px; }
-.stack { display: grid; gap: 14px; }
-.hidden { display: none !important; }
-.field label {
-    display: block;
-    margin-bottom: 6px;
-    color: #606266;
-    font-size: 13px;
-}
-.field input {
-    width: 100%;
-    padding: 11px 12px;
-    border: 1px solid #dcdfe6;
-    border-radius: 8px;
-    font-size: 14px;
-    transition: border-color .2s, box-shadow .2s;
-}
-.field input:focus {
-    border-color: #409eff;
-    box-shadow: 0 0 0 3px rgba(64, 158, 255, 0.12);
-}
-.primary-btn {
-    width: 100%;
-    padding: 12px 14px;
-    border-radius: 8px;
-    background: #409eff;
-    color: #fff;
-    font-weight: 600;
-    transition: background .2s;
-}
-.primary-btn:hover { background: #66b1ff; }
-.primary-btn:disabled { background: #a0cfff; cursor: not-allowed; }
-.helper { color: #909399; font-size: 12px; }
-.feedback {
-    min-height: 20px;
-    color: #f56c6c;
-    font-size: 13px;
-}
-.feedback.success { color: #67c23a; }
-
-#main-page { display: none; }
-.header {
-    background: #fff;
-    border-bottom: 1px solid #e4e7ed;
-    padding: 0 24px;
-    min-height: 64px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 18px;
-}
-.header h1 { font-size: 17px; font-weight: 600; color: #303133; }
-.header-sub { color: #909399; font-size: 12px; margin-top: 2px; }
-.header-right {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-}
-.current-node-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 10px;
-    border-radius: 999px;
-    border: 1px solid #d9ecff;
-    background: #f4f9ff;
-    color: #409eff;
-    font-size: 12px;
-}
-.username { font-weight: 600; color: #303133; }
-.last-update { color: #909399; font-size: 12px; }
-.action-btn {
-    padding: 8px 14px;
-    border-radius: 8px;
-    font-size: 13px;
-    border: 1px solid #dcdfe6;
-    background: #fff;
-    color: #606266;
-}
-.action-btn:hover { border-color: #409eff; color: #409eff; }
-.action-btn.primary {
-    border-color: #409eff;
-    background: #409eff;
-    color: #fff;
-}
-.action-btn.primary:hover { background: #66b1ff; color: #fff; }
-
-.container { max-width: 1240px; margin: 0 auto; padding: 20px 24px; }
-.entry-banner {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 14px 18px;
-    border: 1px solid #d9ecff;
-    border-radius: 10px;
-    background: linear-gradient(90deg, #f4f9ff 0%, #ffffff 100%);
-    margin-bottom: 18px;
-}
-.entry-banner strong { color: #303133; }
-.entry-banner p { color: #606266; }
-
-.section {
-    background: #fff;
-    border: 1px solid #e4e7ed;
-    border-radius: 6px;
-    margin-bottom: 20px;
-    overflow: hidden;
-}
-.section-header {
-    padding: 14px 20px;
-    border-bottom: 1px solid #e4e7ed;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    background: #fafafa;
-}
-.section-header h2 { font-size: 15px; font-weight: 600; color: #303133; }
-.section-summary { font-size: 13px; color: #909399; }
-
-.table-wrap { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; }
-thead th {
-    padding: 10px 16px;
-    text-align: left;
-    font-weight: 500;
-    color: #909399;
-    font-size: 13px;
-    background: #fafafa;
-    border-bottom: 1px solid #ebeef5;
-    white-space: nowrap;
-}
-tbody td {
-    padding: 10px 16px;
-    border-bottom: 1px solid #ebeef5;
-    font-size: 13px;
-    color: #606266;
-    vertical-align: middle;
-}
-tbody tr:hover { background: #ecf5ff; }
-tbody tr:last-child td { border-bottom: none; }
-
-.status-online { color: #67c23a; }
-.status-offline { color: #c0c4cc; }
-.status-running { color: #67c23a; font-weight: 500; }
-.status-stopped { color: #909399; }
-.gpu-zero { color: #f56c6c; font-weight: 600; }
-
-.btn-primary {
-    padding: 5px 14px;
-    background: #409eff;
-    color: #fff;
-    border-radius: 4px;
-    font-size: 12px;
-    transition: background .2s;
-    display: inline-block;
-}
-.btn-primary:hover { background: #66b1ff; }
-.btn-primary.disabled,
-.btn-primary[disabled] {
-    background: #c0c4cc;
-    cursor: not-allowed;
+.steps-bar .step{display:flex;align-items:center;gap:6px}
+.steps-bar .arrow{margin:0 10px;opacity:.45;font-size:11px}
+.step-num{
+  width:22px;height:22px;
+  border-radius:50%;
+  background:var(--accent);
+  color:#fff;
+  display:inline-flex;align-items:center;justify-content:center;
+  font-size:11px;font-weight:700;
 }
 
-.expand-row { display: none; }
-.expand-row.visible { display: table-row; }
-.expand-row td { padding: 8px 16px 8px 40px; background: #f7f8fa; }
-.gpu-grid { display: flex; flex-wrap: wrap; gap: 8px; }
-.gpu-chip {
-    padding: 4px 10px;
-    border-radius: 4px;
-    font-size: 12px;
-    border: 1px solid #e4e7ed;
-    background: #fff;
+.section-label{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:10px;
 }
-.gpu-chip.used { background: #fdf6ec; border-color: #e6a23c; color: #e6a23c; }
-.gpu-chip.free { background: #f0f9eb; border-color: #67c23a; color: #67c23a; }
+.section-label h2{font-size:14px;font-weight:600;color:var(--text)}
+.section-label .tip{color:var(--muted);font-size:12px}
 
-.ssh-cell,
-.pwd-cell {
-    display: flex;
-    align-items: center;
-    gap: 6px;
+.node-list{
+  display:grid;gap:8px;
+  flex:1;overflow-y:auto;
+  max-height:340px;
+  padding-right:4px;
 }
-.ssh-cmd {
-    font-family: "SF Mono", "Fira Code", monospace;
-    font-size: 12px;
-    background: #f5f7fa;
-    padding: 3px 8px;
-    border-radius: 3px;
-    color: #303133;
-    white-space: nowrap;
-}
-.copy-btn {
-    padding: 2px 8px;
-    font-size: 11px;
-    background: none;
-    border: 1px solid #dcdfe6;
-    border-radius: 3px;
-    color: #909399;
-    transition: all .2s;
-}
-.copy-btn:hover { border-color: #409eff; color: #409eff; }
-.pwd-toggle {
-    background: none;
-    border: none;
-    font-size: 14px;
-    color: #909399;
-    cursor: pointer;
-    padding: 0 4px;
-}
-.pwd-toggle:hover { color: #409eff; }
+.node-list::-webkit-scrollbar{width:4px}
+.node-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.08);border-radius:4px}
 
-.empty-state {
-    text-align: center;
-    padding: 40px 20px;
-    color: #c0c4cc;
-    font-size: 14px;
+.node-card{
+  display:block;width:100%;text-align:left;
+  padding:14px 16px;
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  background:var(--surface);
+  color:var(--text);
+  transition:all var(--transition);
 }
-.clickable-row { cursor: pointer; }
-.clickable-row td:first-child::before {
-    content: "▶";
-    margin-right: 6px;
-    font-size: 10px;
-    color: #c0c4cc;
-    transition: transform .2s;
-    display: inline-block;
+.node-card:hover{
+  border-color:rgba(255,255,255,.12);
+  background:var(--surface2);
 }
-.clickable-row.expanded td:first-child::before { transform: rotate(90deg); }
-
-.toast {
-    position: fixed;
-    left: 50%;
-    bottom: 30px;
-    transform: translateX(-50%) translateY(20px);
-    background: rgba(48, 49, 51, 0.92);
-    color: #fff;
-    padding: 10px 16px;
-    border-radius: 999px;
-    font-size: 13px;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity .2s ease, transform .2s ease;
+.node-card.selected{
+  border-color:var(--accent);
+  background:var(--accent-glow);
+  box-shadow:0 0 24px rgba(99,140,255,.08);
 }
-.toast.show {
-    opacity: 1;
-    transform: translateX(-50%) translateY(0);
+.node-card.offline{opacity:.55}
+.node-card-header{
+  display:flex;justify-content:space-between;align-items:center;
+  margin-bottom:6px;
+}
+.node-name{font-weight:600;font-size:14px;color:#fff}
+.node-meta{color:var(--muted);font-size:12px;margin-top:1px}
+.node-status{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:12px;white-space:nowrap;color:var(--muted);
+}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.dot.online{background:var(--green);box-shadow:0 0 8px rgba(52,211,153,.5)}
+.dot.offline{background:#4b5563}
+.node-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.tag{
+  display:inline-flex;align-items:center;
+  padding:2px 10px;border-radius:999px;font-size:11px;font-weight:500;
+  border:1px solid var(--border);
+  color:var(--muted);background:rgba(255,255,255,.03);
+}
+.tag.primary{
+  border-color:var(--border-hl);
+  color:var(--accent);
+  background:var(--accent-glow);
 }
 
-@media (max-width: 960px) {
-    .auth-shell { grid-template-columns: 1fr; }
-    .auth-side { border-right: none; border-bottom: 1px solid #e4e7ed; }
+/* ── Right Side (Auth Form) ──────────────── */
+.auth-main{
+  padding:40px 36px 36px;
+  display:flex;flex-direction:column;
 }
-@media (max-width: 720px) {
-    .header,
-    .entry-banner,
-    .section-header,
-    .selected-node-box {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-    .header-right { justify-content: flex-start; }
-    .container { padding: 16px; }
-    .auth-side,
-    .auth-main { padding: 24px 20px; }
+.tabs{
+  display:inline-flex;
+  border:1px solid var(--border);
+  border-radius:10px;padding:3px;
+  background:var(--surface2);
+  margin-bottom:22px;
+  align-self:flex-start;
+}
+.tab{
+  min-width:94px;padding:9px 16px;
+  border-radius:8px;background:transparent;
+  color:var(--muted);font-weight:500;font-size:13px;
+  transition:all var(--transition);
+}
+.tab:hover{color:var(--text)}
+.tab.active{background:var(--accent);color:#fff}
+
+.auth-panel-title{font-size:20px;font-weight:600;color:#fff;margin-bottom:6px}
+.auth-panel-subtitle{color:var(--muted);font-size:13px;margin-bottom:18px}
+
+.selected-node-box{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:12px 16px;
+  border:1px solid var(--border-hl);
+  border-radius:var(--radius);
+  background:var(--accent-glow);
+  margin-bottom:20px;
+}
+.selected-node-text strong{color:#fff;font-size:14px}
+.selected-node-text div{color:var(--muted);font-size:12px;margin-top:2px}
+
+.stack{display:grid;gap:14px}
+.hidden{display:none!important}
+.field label{
+  display:block;margin-bottom:5px;
+  color:var(--muted);font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:.04em;
+}
+.field input{
+  width:100%;padding:11px 14px;
+  border:1px solid var(--border);
+  border-radius:8px;
+  background:var(--surface2);
+  color:var(--text);
+  font-size:14px;
+  transition:border-color var(--transition),box-shadow var(--transition);
+}
+.field input::placeholder{color:#4b5563}
+.field input:focus{
+  border-color:var(--accent);
+  box-shadow:0 0 0 3px var(--accent-glow);
+  outline:none;
+}
+.primary-btn{
+  width:100%;padding:12px 14px;border-radius:8px;
+  background:var(--accent);color:#fff;font-weight:600;
+  transition:all var(--transition);
+  position:relative;overflow:hidden;
+}
+.primary-btn::after{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(rgba(255,255,255,.1),transparent);
+  pointer-events:none;
+}
+.primary-btn:hover{filter:brightness(1.12);transform:translateY(-1px)}
+.primary-btn:active{transform:translateY(0)}
+.primary-btn:disabled{background:#3b4563;color:#6b7a9e;cursor:not-allowed;filter:none;transform:none}
+.helper{color:var(--muted);font-size:12px}
+.feedback{min-height:18px;color:var(--red);font-size:13px}
+.feedback.success{color:var(--green)}
+
+/* ── Main Page (Logged-in Dashboard) ──────── */
+#main-page{display:none}
+.header{
+  background:var(--surface);
+  border-bottom:1px solid var(--border);
+  padding:0 24px;min-height:60px;
+  display:flex;align-items:center;justify-content:space-between;gap:16px;
+  position:sticky;top:0;z-index:10;
+  backdrop-filter:blur(12px);
+}
+.header h1{font-size:16px;font-weight:600;color:#fff}
+.header-sub{color:var(--muted);font-size:12px;margin-top:1px}
+.header-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.current-node-pill{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:5px 12px;border-radius:999px;
+  border:1px solid var(--border-hl);background:var(--accent-glow);
+  color:var(--accent);font-size:12px;font-weight:500;
+}
+.username{font-weight:600;color:var(--text);font-size:13px}
+.last-update{color:var(--muted);font-size:11px}
+
+.action-btn{
+  padding:7px 14px;border-radius:8px;font-size:13px;font-weight:500;
+  border:1px solid var(--border);background:var(--surface2);color:var(--text);
+  transition:all var(--transition);
+}
+.action-btn:hover{border-color:var(--accent);color:var(--accent)}
+.action-btn.primary{
+  border-color:var(--accent);background:var(--accent);color:#fff;
+}
+.action-btn.primary:hover{filter:brightness(1.12)}
+.action-btn:disabled{opacity:.4;cursor:not-allowed;filter:none}
+
+.container{max-width:1280px;margin:0 auto;padding:20px 24px}
+
+.entry-banner{
+  display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:16px 20px;
+  border:1px solid var(--border-hl);
+  border-radius:var(--radius);
+  background:linear-gradient(90deg,var(--accent-glow),transparent);
+  margin-bottom:20px;
+}
+.entry-banner strong{color:#fff;font-size:14px}
+.entry-banner p{color:var(--muted);font-size:13px;margin-top:2px}
+
+.section{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  margin-bottom:20px;
+  overflow:hidden;
+}
+.section-header{
+  padding:14px 20px;
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  background:var(--surface2);
+}
+.section-header h2{font-size:15px;font-weight:600;color:#fff}
+.section-summary{font-size:12px;color:var(--muted)}
+
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+thead th{
+  padding:10px 16px;text-align:left;font-weight:500;
+  color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em;
+  background:var(--surface2);border-bottom:1px solid var(--border);
+  white-space:nowrap;
+}
+tbody td{
+  padding:10px 16px;border-bottom:1px solid var(--border);
+  font-size:13px;color:var(--text);vertical-align:middle;
+}
+tbody tr{transition:background var(--transition)}
+tbody tr:hover{background:rgba(99,140,255,.04)}
+tbody tr:last-child td{border-bottom:none}
+
+.status-online{color:var(--green)}
+.status-offline{color:#4b5563}
+.status-running{color:var(--green);font-weight:500}
+.status-stopped{color:var(--muted)}
+.gpu-zero{color:var(--red);font-weight:600}
+
+.btn-primary{
+  padding:5px 14px;background:var(--accent);color:#fff;
+  border-radius:6px;font-size:12px;font-weight:500;
+  transition:all var(--transition);display:inline-block;
+}
+.btn-primary:hover{filter:brightness(1.12)}
+.btn-primary.disabled,.btn-primary[disabled]{background:#3b4563;color:#6b7a9e;cursor:not-allowed;filter:none}
+
+.expand-row{display:none}
+.expand-row.visible{display:table-row}
+.expand-row td{padding:10px 16px 10px 40px;background:var(--surface2)}
+.gpu-grid{display:flex;flex-wrap:wrap;gap:8px}
+.gpu-chip{
+  padding:4px 12px;border-radius:6px;font-size:12px;font-weight:500;
+  border:1px solid var(--border);background:var(--surface);
+}
+.gpu-chip.used{background:rgba(248,113,113,.08);border-color:rgba(248,113,113,.25);color:var(--red)}
+.gpu-chip.free{background:var(--green-bg);border-color:rgba(52,211,153,.25);color:var(--green)}
+
+.ssh-cell,.pwd-cell{display:flex;align-items:center;gap:6px}
+.ssh-cmd{
+  font-family:'SF Mono','Fira Code',monospace;font-size:12px;
+  background:var(--surface2);padding:3px 10px;border-radius:4px;
+  color:var(--text);white-space:nowrap;
+  border:1px solid var(--border);
+}
+.copy-btn{
+  padding:2px 8px;font-size:11px;background:none;
+  border:1px solid var(--border);border-radius:4px;
+  color:var(--muted);transition:all var(--transition);
+}
+.copy-btn:hover{border-color:var(--accent);color:var(--accent)}
+.pwd-toggle{
+  background:none;border:none;font-size:14px;
+  color:var(--muted);cursor:pointer;padding:0 4px;
+}
+.pwd-toggle:hover{color:var(--accent)}
+
+.empty-state{
+  text-align:center;padding:40px 20px;color:var(--muted);font-size:14px;
+}
+.clickable-row{cursor:pointer}
+.clickable-row td:first-child::before{
+  content:"▶";margin-right:8px;font-size:9px;color:var(--muted);
+  transition:transform .2s;display:inline-block;
+}
+.clickable-row.expanded td:first-child::before{transform:rotate(90deg)}
+
+.toast{
+  position:fixed;left:50%;bottom:30px;
+  transform:translateX(-50%) translateY(20px);
+  background:var(--surface2);
+  border:1px solid var(--border);
+  color:#fff;padding:10px 20px;
+  border-radius:999px;font-size:13px;font-weight:500;
+  opacity:0;pointer-events:none;
+  transition:opacity .25s ease,transform .25s ease;
+  box-shadow:var(--shadow);
+  z-index:100;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+@media(max-width:960px){
+  .auth-shell{grid-template-columns:1fr}
+  .auth-side{border-right:none;border-bottom:1px solid var(--border)}
+  .node-list{max-height:220px}
+}
+@media(max-width:720px){
+  .header,.entry-banner,.section-header,.selected-node-box{
+    flex-direction:column;align-items:flex-start;
+  }
+  .header-right{justify-content:flex-start}
+  .container{padding:16px}
+  .auth-side,.auth-main{padding:28px 20px}
 }
 </style>
 </head>
@@ -467,20 +399,18 @@ tbody tr:last-child td { border-bottom: none; }
 <div id="auth-page">
     <div class="auth-shell">
         <div class="auth-side">
-            <h1>GPU 集群跳板机</h1>
-            <p>先注册或登录目标服务器账号，再一键跳转进入对应的 Servermanager 管理页。</p>
-            <div class="flow-box">
-                <strong>推荐流程</strong>
-                1. 选择服务器 -> 2. 注册或登录 -> 3. 点击进入服务器
+            <h1>GPU 集群管理</h1>
+            <p class="subtitle">选择目标服务器，注册或登录后即可进入管理。</p>
+            <div class="steps-bar">
+                <span class="step"><span class="step-num">1</span>选择服务器</span>
+                <span class="arrow">→</span>
+                <span class="step"><span class="step-num">2</span>注册 / 登录</span>
+                <span class="arrow">→</span>
+                <span class="step"><span class="step-num">3</span>进入管理</span>
             </div>
-            <div class="point-list">
-                <div class="point">统一查看整个集群的节点状态与我的实例。</div>
-                <div class="point">注册直接写入所选 Servermanager，并自动登录。</div>
-                <div class="point">进入服务器时自动携带共享 JWT，避免重复登录。</div>
-            </div>
-            <div class="section-title">
-                <h2>选择目标服务器</h2>
-                <span class="section-tip" id="node-summary">加载中...</span>
+            <div class="section-label">
+                <h2>可用服务器</h2>
+                <span class="tip" id="node-summary">加载中...</span>
             </div>
             <div class="node-list" id="auth-node-list"></div>
         </div>
@@ -490,8 +420,8 @@ tbody tr:last-child td { border-bottom: none; }
                 <button id="login-tab" class="tab active" type="button">登录</button>
                 <button id="register-tab" class="tab" type="button">注册</button>
             </div>
-            <div class="auth-panel-title">进入你的计算服务器</div>
-            <div class="auth-panel-subtitle">登录与注册都会作用于当前选中的 Servermanager 节点。</div>
+            <div class="auth-panel-title">进入计算服务器</div>
+            <div class="auth-panel-subtitle">请先在左侧选择一台在线的服务器节点。</div>
 
             <div class="selected-node-box">
                 <div class="selected-node-text">
@@ -504,14 +434,13 @@ tbody tr:last-child td { border-bottom: none; }
             <form id="login-form" class="stack">
                 <div class="field">
                     <label for="login-username">用户名</label>
-                    <input type="text" id="login-username" placeholder="请输入服务器账号用户名" autocomplete="username">
+                    <input type="text" id="login-username" placeholder="请输入用户名" autocomplete="username">
                 </div>
                 <div class="field">
                     <label for="login-password">密码</label>
                     <input type="password" id="login-password" placeholder="请输入密码" autocomplete="current-password">
                 </div>
-                <button class="primary-btn" id="login-btn" type="submit">登录当前服务器</button>
-                <div class="helper">如果这个账号已经存在于所选服务器，登录后即可直接进入。</div>
+                <button class="primary-btn" id="login-btn" type="submit">登录</button>
                 <div class="feedback" id="login-feedback"></div>
             </form>
 
@@ -528,8 +457,7 @@ tbody tr:last-child td { border-bottom: none; }
                     <label for="register-password">密码</label>
                     <input type="password" id="register-password" minlength="6" placeholder="至少 6 位" autocomplete="new-password">
                 </div>
-                <button class="primary-btn" id="register-btn" type="submit">注册并登录当前服务器</button>
-                <div class="helper">注册成功后会自动登录，并把你带到可直接进入服务器的状态。</div>
+                <button class="primary-btn" id="register-btn" type="submit">注册并登录</button>
                 <div class="feedback" id="register-feedback"></div>
             </form>
         </div>
@@ -540,7 +468,7 @@ tbody tr:last-child td { border-bottom: none; }
     <div class="header">
         <div>
             <h1>GPU 集群管理</h1>
-            <div class="header-sub">已打通注册 -> 选择服务器 -> 进入 Servermanager 的统一入口</div>
+            <div class="header-sub">集群总览与实例快照</div>
         </div>
         <div class="header-right">
             <span class="current-node-pill" id="current-node-pill">当前服务器: 未选择</span>
@@ -555,9 +483,9 @@ tbody tr:last-child td { border-bottom: none; }
         <div class="entry-banner">
             <div>
                 <strong id="entry-banner-title">当前登录服务器未设置</strong>
-                <p id="entry-banner-text">登录或注册后，这里会显示你当前可直达的 Servermanager 节点。</p>
+                <p id="entry-banner-text">登录后可从这里直接跳转到目标服务器管理页。</p>
             </div>
-            <button class="action-btn primary" id="banner-enter-btn" type="button">立即进入服务器</button>
+            <button class="action-btn primary" id="banner-enter-btn" type="button">进入服务器</button>
         </div>
 
         <div class="section">
@@ -669,11 +597,7 @@ const els = {
 
 function safeParse(value) {
     if (!value) return null;
-    try {
-        return JSON.parse(value);
-    } catch (error) {
-        return null;
-    }
+    try { return JSON.parse(value); } catch (error) { return null; }
 }
 
 function setFeedback(target, message, success) {
@@ -710,17 +634,11 @@ async function copyText(text, btn) {
         if (!btn) return;
         const original = btn.textContent;
         btn.textContent = "✓";
-        window.setTimeout(function() {
-            btn.textContent = original;
-        }, 1500);
+        window.setTimeout(function() { btn.textContent = original; }, 1500);
     }
 
     if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-        try {
-            await navigator.clipboard.writeText(text);
-            markCopied();
-            return;
-        } catch (error) {}
+        try { await navigator.clipboard.writeText(text); markCopied(); return; } catch (error) {}
     }
 
     const textarea = document.createElement("textarea");
@@ -734,14 +652,8 @@ async function copyText(text, btn) {
     textarea.select();
 
     let copied = false;
-    try {
-        copied = document.execCommand("copy");
-    } finally {
-        document.body.removeChild(textarea);
-    }
-    if (!copied) {
-        throw new Error("复制失败");
-    }
+    try { copied = document.execCommand("copy"); } finally { document.body.removeChild(textarea); }
+    if (!copied) throw new Error("复制失败");
     markCopied();
 }
 
@@ -827,8 +739,8 @@ function updateSelectedNodeBox() {
 
     els.selectedNodeName.textContent = node.name || node.node_id;
     els.selectedNodeMeta.textContent = node.online
-        ? (node.allow_register ? "该节点在线，支持注册与登录" : "该节点在线，仅支持已有账号登录")
-        : "该节点当前离线，暂时无法注册或登录";
+        ? (node.allow_register ? "在线 · 可注册新账号" : "在线 · 仅支持已有账号登录")
+        : "当前离线";
     els.selectedNodeTag.textContent = node.online ? "在线" : "离线";
     els.selectedNodeTag.classList.toggle("primary", Boolean(node.online));
 }
@@ -842,7 +754,7 @@ function selectNode(nodeId) {
 
 function renderAuthNodes() {
     if (!state.authNodes.length) {
-        els.authNodeList.innerHTML = '<div class="empty-state" style="padding:24px 12px;">暂无可用节点配置</div>';
+        els.authNodeList.innerHTML = '<div class="empty-state" style="padding:24px 12px;">暂无可用节点</div>';
         els.nodeSummary.textContent = "0 个节点";
         updateSelectedNodeBox();
         return;
@@ -885,11 +797,11 @@ function renderHeader() {
     els.headerUsername.textContent = state.user && state.user.username ? state.user.username : "-";
     els.currentNodePill.textContent = "当前服务器: " + (state.currentNodeName || "未选择");
     els.entryBannerTitle.textContent = state.currentNodeName
-        ? ("当前已接入 " + state.currentNodeName)
+        ? ("已连接 " + state.currentNodeName)
         : "当前登录服务器未设置";
     els.entryBannerText.textContent = state.currentEntryUrl
-        ? "你可以从这里直接跳转到对应的 Servermanager 页面继续创建、管理和进入实例。"
-        : "当前没有可用的节点直达地址，请先选择服务器并重新登录。";
+        ? "点击右侧按钮可直接跳转到对应服务器管理页面。"
+        : "暂无可用直达地址，请先选择服务器并重新登录。";
     els.enterServerBtn.disabled = !state.currentEntryUrl;
     els.bannerEnterBtn.disabled = !state.currentEntryUrl;
 }
@@ -938,12 +850,8 @@ async function loadAuthNodes() {
 
 function requireSelectedNode(mode) {
     const node = getSelectedNode();
-    if (!node) {
-        throw new Error("请先选择服务器");
-    }
-    if (!node.online) {
-        throw new Error("当前节点离线，请选择其他服务器");
-    }
+    if (!node) throw new Error("请先选择服务器");
+    if (!node.online) throw new Error("当前节点离线，请选择其他服务器");
     if (mode === "register" && !node.allow_register) {
         throw new Error("当前节点未开放注册，请切换到其他节点或使用已有账号登录");
     }
@@ -979,9 +887,7 @@ async function doLogin(event) {
     event.preventDefault();
     setFeedback(els.loginFeedback, "", false);
     let node;
-    try {
-        node = requireSelectedNode("login");
-    } catch (error) {
+    try { node = requireSelectedNode("login"); } catch (error) {
         setFeedback(els.loginFeedback, error.message, false);
         return;
     }
@@ -1008,7 +914,7 @@ async function doLogin(event) {
         setFeedback(els.loginFeedback, error.message || "登录失败", false);
     } finally {
         els.loginBtn.disabled = false;
-        els.loginBtn.textContent = "登录当前服务器";
+        els.loginBtn.textContent = "登录";
     }
 }
 
@@ -1016,9 +922,7 @@ async function doRegister(event) {
     event.preventDefault();
     setFeedback(els.registerFeedback, "", false);
     let node;
-    try {
-        node = requireSelectedNode("register");
-    } catch (error) {
+    try { node = requireSelectedNode("register"); } catch (error) {
         setFeedback(els.registerFeedback, error.message, false);
         return;
     }
@@ -1042,21 +946,19 @@ async function doRegister(event) {
         showMain();
         await loadAll();
         setFeedback(els.registerFeedback, data.message || "注册成功", true);
-        showToast(data.message || "注册成功，已自动登录");
+        showToast(data.message || "注册成功");
     } catch (error) {
         setFeedback(els.registerFeedback, error.message || "注册失败", false);
     } finally {
         els.registerBtn.disabled = false;
-        els.registerBtn.textContent = "注册并登录当前服务器";
+        els.registerBtn.textContent = "注册并登录";
     }
 }
 
 async function loadAll() {
     await Promise.all([loadCluster(), loadMyInstances()]);
     updateTime();
-    if (state.refreshTimer) {
-        clearInterval(state.refreshTimer);
-    }
+    if (state.refreshTimer) clearInterval(state.refreshTimer);
     state.refreshTimer = setInterval(function() {
         loadAll().catch(function() {});
     }, 30000);
@@ -1067,7 +969,7 @@ function updateTime() {
     const hh = String(now.getHours()).padStart(2, "0");
     const mm = String(now.getMinutes()).padStart(2, "0");
     const ss = String(now.getSeconds()).padStart(2, "0");
-    els.lastUpdate.textContent = "上次更新: " + hh + ":" + mm + ":" + ss;
+    els.lastUpdate.textContent = "更新于 " + hh + ":" + mm + ":" + ss;
 }
 
 async function loadCluster() {
@@ -1081,7 +983,7 @@ async function loadCluster() {
 
 function renderCluster(data) {
     const summary = data && data.summary ? data.summary : { total_gpu: 0, free_gpu: 0, total_instances: 0 };
-    els.clusterSummary.textContent = "总 GPU " + summary.total_gpu + " 张 · 空闲 " + summary.free_gpu + " 张 · 运行实例 " + summary.total_instances + " 个";
+    els.clusterSummary.textContent = "GPU " + summary.total_gpu + " 张 · 空闲 " + summary.free_gpu + " 张 · 实例 " + summary.total_instances + " 个";
 
     const nodes = Array.isArray(data && data.nodes) ? data.nodes : [];
     if (!nodes.length) {
@@ -1105,9 +1007,9 @@ function renderCluster(data) {
         html += '<td>' + escHtml(String(node.instance_count || 0)) + '</td>';
         html += '<td>';
         if (entryUrl) {
-            html += '<a class="btn-primary" href="' + escHtml(entryUrl) + '" target="_blank" onclick="event.stopPropagation()">' + (isCurrent ? '进入当前服务器' : '进入管理') + '</a>';
+            html += '<a class="btn-primary" href="' + escHtml(entryUrl) + '" target="_blank" onclick="event.stopPropagation()">' + (isCurrent ? '进入服务器' : '进入管理') + '</a>';
         } else {
-            html += '<span style="color:#c0c4cc">—</span>';
+            html += '<span style="color:var(--muted)">—</span>';
         }
         html += '</td></tr>';
 
@@ -1121,16 +1023,14 @@ function renderCluster(data) {
             });
             html += '</div>';
         } else {
-            html += '<span style="color:#c0c4cc">无 GPU 详情数据</span>';
+            html += '<span style="color:var(--muted)">无 GPU 详情数据</span>';
         }
         html += '</td></tr>';
     });
     els.clusterTbody.innerHTML = html;
 
     Array.prototype.forEach.call(els.clusterTbody.querySelectorAll("tr.clickable-row"), function(row) {
-        row.addEventListener("click", function() {
-            toggleExpand(row);
-        });
+        row.addEventListener("click", function() { toggleExpand(row); });
     });
 }
 
@@ -1148,10 +1048,7 @@ async function loadMyInstances() {
         const data = await requestJson("/api/cluster/my_instances", { headers: authHeaders() });
         renderInstances(data);
     } catch (error) {
-        if (error && error.message && error.message.indexOf("token") >= 0) {
-            logout();
-            return;
-        }
+        if (error && error.message && error.message.indexOf("token") >= 0) { logout(); return; }
         console.error("实例加载失败", error);
     }
 }
@@ -1255,11 +1152,7 @@ document.getElementById("login-username").addEventListener("keydown", function(e
     if (state.token && state.user) {
         showMain();
         renderHeader();
-        try {
-            await loadAll();
-        } catch (error) {
-            logout();
-        }
+        try { await loadAll(); } catch (error) { logout(); }
     } else {
         showLogin();
     }
