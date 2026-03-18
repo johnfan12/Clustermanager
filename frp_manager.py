@@ -246,7 +246,40 @@ class FrpVisitorManager:
                     json=vps_info,
                     timeout=5.0,
                 )
-                if response.status_code != 200:
+                if response.status_code == 404:
+                    LOGGER.warning(
+                        "Instance %s not found on node %s when syncing vps_access; "
+                        "triggering node FRP sync once",
+                        name,
+                        node_id,
+                    )
+                    sync_resp = httpx.post(
+                        f"{api_base}/api/frp/sync",
+                        headers=headers,
+                        timeout=8.0,
+                    )
+                    if sync_resp.status_code == 200:
+                        retry_resp = httpx.post(
+                            f"{api_base}/api/instances/{name}/vps-access",
+                            headers=headers,
+                            json=vps_info,
+                            timeout=5.0,
+                        )
+                        if retry_resp.status_code != 200:
+                            LOGGER.warning(
+                                "Failed to sync VPS access for %s after FRP sync: %s %s",
+                                name,
+                                retry_resp.status_code,
+                                retry_resp.text,
+                            )
+                    else:
+                        LOGGER.warning(
+                            "Node %s FRP sync request failed: %s %s",
+                            node_id,
+                            sync_resp.status_code,
+                            sync_resp.text,
+                        )
+                elif response.status_code != 200:
                     LOGGER.warning(
                         "Failed to sync VPS access for %s: %s %s",
                         name,
