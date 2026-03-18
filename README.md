@@ -153,7 +153,6 @@ nano .env
 | `JWT_SECRET` | 与所有节点保持一致 | `your-strong-secret` |
 | `ADMIN_PASSWORD` | 跳板机管理员密码 | `your-admin-password` |
 | `FRP_TOKEN` | 与 frps.ini 一致 | `your-frp-token` |
-| `FRP_VISITORS_RESTART_FALLBACK` | reload 失败后是否自动 restart（会打断已有 SSH） | `false` |
 | `VPS_PUBLIC_IP` | VPS 公网 IP | `1.2.3.4` |
 | `NODES_JSON` | 节点列表（推荐使用 `127.0.0.1:18881`） | `{"node1": {...}}` |
 
@@ -345,16 +344,6 @@ curl -H "Authorization: Bearer TOKEN" \
 ```
 
 或通过 Web 界面查看。
-
-### Q: 新建容器时为什么会把其他 SSH 会话踢掉
-- 原因通常是 `frpc-visitors` 发生了 `restart`（进程重启会中断已有会话）
-- 当前版本已经改为优先 `reload`，并支持通过配置关闭自动 restart 兜底：
-  - 在 `Clustermanager/.env` 里设置 `FRP_VISITORS_RESTART_FALLBACK=false`
-- 这样能优先保证现有 SSH 稳定；代价是当 reload 失败时，新隧道可能暂时不生效，需要手动执行：
-
-```bash
-sudo systemctl restart frpc-visitors
-```
 
 ### Q: 如何手动同步 FRP 配置
 ```bash

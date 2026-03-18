@@ -20,7 +20,6 @@ from config import (
     FRP_SERVER_ADDR,
     FRP_SERVER_PORT,
     FRP_TOKEN,
-    FRP_VISITORS_RESTART_FALLBACK,
     NODES,
     VPS_PUBLIC_IP,
 )
@@ -289,70 +288,31 @@ class FrpVisitorManager:
 
     def _reload_frpc(self) -> None:
         """热重载 frpc."""
-        reload_commands = [
-            ["systemctl", "reload", "frpc-visitors"],
-            ["sudo", "-n", "systemctl", "reload", "frpc-visitors"],
-        ]
-        for command in reload_commands:
-            try:
-                result = subprocess.run(
-                    command,
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                continue
-
-            if result.returncode == 0:
-                LOGGER.info("Reloaded frpc-visitors via command: %s", " ".join(command))
-                return
-
-            error_text = (result.stderr or result.stdout or "").strip()
-            if error_text:
-                LOGGER.warning(
-                    "Failed to reload frpc-visitors via '%s': %s",
-                    " ".join(command),
-                    error_text,
-                )
-
-        if not FRP_VISITORS_RESTART_FALLBACK:
-            LOGGER.warning(
-                "Reload frpc-visitors failed and restart fallback is disabled "
-                "(FRP_VISITORS_RESTART_FALLBACK=false). New tunnels may not be active "
-                "until you manually run: sudo systemctl restart frpc-visitors"
+        try:
+            result = subprocess.run(
+                ["systemctl", "reload", "frpc-visitors"],
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
-            return
-
-        restart_commands = [
-            ["systemctl", "restart", "frpc-visitors"],
-            ["sudo", "-n", "systemctl", "restart", "frpc-visitors"],
-        ]
-        for command in restart_commands:
-            try:
-                result = subprocess.run(
-                    command,
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                continue
-
             if result.returncode == 0:
-                LOGGER.info(
-                    "Reload failed; restarted frpc-visitors via command: %s",
-                    " ".join(command),
-                )
+                LOGGER.info("Reloaded frpc-visitors via systemctl")
                 return
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
 
-            error_text = (result.stderr or result.stdout or "").strip()
-            if error_text:
-                LOGGER.warning(
-                    "Failed to restart frpc-visitors via '%s': %s",
-                    " ".join(command),
-                    error_text,
-                )
+        try:
+            result = subprocess.run(
+                ["systemctl", "restart", "frpc-visitors"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0:
+                LOGGER.info("Reload failed; restarted frpc-visitors instead")
+                return
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
 
         LOGGER.warning(
             "Could not reload or restart frpc-visitors automatically. "
