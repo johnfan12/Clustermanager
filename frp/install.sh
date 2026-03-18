@@ -20,10 +20,12 @@ rm -rf "frp_${FRP_VERSION}_${FRP_ARCH}"
 
 # 创建配置目录
 sudo mkdir -p /etc/frp
+sudo mkdir -p /etc/frp/visitors
 
 # 安装 systemd 服务
 sudo cp "${SCRIPT_DIR}/frps.service" /etc/systemd/system/
 sudo cp "${SCRIPT_DIR}/frpc-visitors.service" /etc/systemd/system/
+sudo cp "${SCRIPT_DIR}/frpc-visitor@.service" /etc/systemd/system/
 
 # 复制默认配置（如果不存在）
 if [ ! -f /etc/frp/frps.ini ]; then
@@ -44,8 +46,9 @@ echo "   sudo systemctl enable frps"
 echo "   sudo systemctl start frps"
 echo ""
 echo "3. Start frpc-visitors:"
-echo "   sudo systemctl enable frpc-visitors"
-echo "   sudo systemctl start frpc-visitors"
+echo "   Visitor tunnels now run in per-instance mode via"
+echo "   frpc-visitor@<container>.service managed by Clustermanager."
+echo "   Do NOT keep legacy frpc-visitors service running in parallel."
 echo ""
 echo "4. Configure Clustermanager config.py:"
 echo "   FRP_TOKEN = 'your-secret-token' (same as frps.ini)"
@@ -55,4 +58,4 @@ echo "   python main.py"
 echo ""
 echo "Check status:"
 echo "   sudo systemctl status frps"
-echo "   sudo systemctl status frpc-visitors"
+echo "   sudo systemctl status 'frpc-visitor@*'"

@@ -46,6 +46,7 @@ FRP_SERVER_ADDR=localhost
 FRP_SERVER_PORT=7000
 FRP_TOKEN=${FRP_TOKEN}
 FRP_CONFIG_DIR=/etc/frp
+FRP_VISITOR_CONFIG_DIR=/etc/frp/visitors
 FRP_CONTAINER_PORT_RANGE=30000-39999
 VPS_PUBLIC_IP=${VPS_IP}
 NODES_JSON={"node1":{"name":"node1","api":"http://127.0.0.1:18881","admin_token":"${NODE1_ADMIN_TOKEN}","gpu_count":1,"gpu_model":"GPU"}}
@@ -59,7 +60,7 @@ cd ..
 sudo sed -i "s/^token = .*/token = ${FRP_TOKEN}/" /etc/frp/frps.ini
 sudo sed -i 's/^allow_ports = .*/allow_ports = 18881,30000-39999/' /etc/frp/frps.ini
 
-sudo systemctl enable --now frps frpc-visitors
+sudo systemctl enable --now frps
 
 chmod +x start.sh
 nohup ./start.sh > logs/clustermanager.log 2>&1 &
@@ -130,7 +131,7 @@ sudo nano /etc/frp/frps.ini
 启动服务：
 ```bash
 sudo systemctl enable --now frps
-sudo systemctl enable --now frpc-visitors
+sudo systemctl enable --now frps
 ```
 
 ### 1.2 部署聚合服务

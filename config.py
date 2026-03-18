@@ -112,12 +112,15 @@ FRP_SERVER_PORT: int = int(os.environ.get("FRP_SERVER_PORT", "7000"))
 FRP_TOKEN: str = os.environ.get("FRP_TOKEN", "your-frp-secret-token")
 FRP_CONFIG_DIR: str = os.environ.get("FRP_CONFIG_DIR", "/etc/frp")
 FRP_CONFIG_FILE: str = f"{FRP_CONFIG_DIR}/frpc-visitors.ini"
+FRP_VISITOR_CONFIG_DIR: str = os.environ.get(
+    "FRP_VISITOR_CONFIG_DIR", f"{FRP_CONFIG_DIR}/visitors"
+)
 
 # 容器访问端口范围（在 VPS 上暴露）
 _frp_port_range = os.environ.get("FRP_CONTAINER_PORT_RANGE", "30000-39999").split("-")
 FRP_CONTAINER_PORT_RANGE: tuple[int, int] = (
     (int(_frp_port_range[0]), int(_frp_port_range[1]))
-    if "-" in _frp_port_range
+    if len(_frp_port_range) == 2
     else (30000, 39999)
 )
 
