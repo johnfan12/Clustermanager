@@ -198,12 +198,11 @@ class FrpVisitorManager:
             signature = self._build_sync_signature(containers)
             existing_ports = self._load_existing_visitor_ports()
 
-            if (
-                signature == self._last_sync_signature
-                and existing_ports
-                and time.time() - self._last_sync_at < 10
-            ):
+            if signature == self._last_sync_signature and existing_ports:
                 self._allocated_ports = dict(existing_ports)
+                LOGGER.debug(
+                    "Skip frpc-visitors restart: container signature unchanged"
+                )
                 return True
 
             self._allocated_ports = {}
@@ -291,26 +290,26 @@ class FrpVisitorManager:
         """热重载 frpc."""
         try:
             result = subprocess.run(
-                ["systemctl", "restart", "frpc-visitors"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            if result.returncode == 0:
-                LOGGER.info("Restarted frpc-visitors via systemctl")
-                return
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            pass
-
-        try:
-            result = subprocess.run(
                 ["systemctl", "reload", "frpc-visitors"],
                 capture_output=True,
                 text=True,
                 timeout=5,
             )
             if result.returncode == 0:
-                LOGGER.info("Restart unavailable; reloaded frpc-visitors instead")
+                LOGGER.info("Reloaded frpc-visitors via systemctl")
+                return
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+        try:
+            result = subprocess.run(
+                ["systemctl", "restart", "frpc-visitors"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0:
+                LOGGER.info("Reload failed; restarted frpc-visitors instead")
                 return
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pass
