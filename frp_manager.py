@@ -7,6 +7,7 @@ import hashlib
 import logging
 import socket
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,7 @@ class FrpVisitorManager:
         self.instance_config_dir = Path(FRP_VISITOR_CONFIG_DIR)
         self.instance_config_dir.mkdir(parents=True, exist_ok=True)
         self._allocated_ports: dict[str, int] = {}
+        self._service_cache: dict[str, tuple[bool, float]] = {}
 
     def fetch_container_secrets(self) -> list[dict[str, Any]]:
         containers = []
@@ -104,6 +106,38 @@ class FrpVisitorManager:
                     error_text,
                 )
         return False
+
+    def _is_service_active(self, service_name: str) -> bool:
+        cached = self._service_cache.get(service_name)
+        now = time.time()
+        if cached and now - cached[1] < 3:
+            return cached[0]
+
+        commands = [
+            ["sudo", "-n", "systemctl", "is-active", "--quiet", service_name],
+            ["systemctl", "is-active", "--quiet", service_name],
+        ]
+        for command in commands:
+            try:
+                result = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                continue
+            if result.returncode == 0:
+                self._service_cache[service_name] = (True, now)
+                return True
+
+        self._service_cache[service_name] = (False, now)
+        return False
+
+    def _is_local_port_listening(self, port: int) -> bool:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(0.6)
+            return sock.connect_ex(("127.0.0.1", port)) == 0
 
     def _is_port_in_use(self, port: int) -> bool:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -314,11 +348,22 @@ class FrpVisitorManager:
             service_name = self._instance_service_name(name)
             if name not in existing_ports:
                 success = self._run_systemctl("start", service_name) and success
+                self._service_cache.pop(service_name, None)
                 continue
             if changed:
                 reloaded = self._run_systemctl("reload", service_name, timeout=5)
                 if not reloaded:
                     success = self._run_systemctl("restart", service_name) and success
+                self._service_cache.pop(service_name, None)
+                continue
+
+            if not self._is_service_active(service_name):
+                LOGGER.warning(
+                    "Visitor service %s inactive, starting it",
+                    service_name,
+                )
+                success = self._run_systemctl("start", service_name) and success
+                self._service_cache.pop(service_name, None)
 
         stale_names = sorted(set(existing_ports.keys()) - set(desired.keys()))
         for name in stale_names:
@@ -336,6 +381,30 @@ class FrpVisitorManager:
 
         self._sync_vps_access_to_nodes(containers)
         return success
+
+    def _ensure_visitor_ready(self, container_name: str, bind_port: int) -> bool:
+        service_name = self._instance_service_name(container_name)
+        if not self._is_service_active(service_name):
+            self._run_systemctl("start", service_name)
+            self._service_cache.pop(service_name, None)
+
+        if not self._is_service_active(service_name):
+            LOGGER.warning(
+                "Visitor service %s inactive; skip mapping for %s",
+                service_name,
+                container_name,
+            )
+            return False
+
+        if not self._is_local_port_listening(bind_port):
+            LOGGER.warning(
+                "Visitor bind port %s not listening for %s; skip mapping",
+                bind_port,
+                container_name,
+            )
+            return False
+
+        return True
 
     def update_config(self) -> bool:
         if not self.enabled:
@@ -368,6 +437,8 @@ class FrpVisitorManager:
                 continue
             port = ports.get(name)
             if port is None:
+                continue
+            if not self._ensure_visitor_ready(name, port):
                 continue
             mappings[name] = {
                 "node_id": container.get("node_id"),
