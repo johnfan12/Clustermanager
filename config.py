@@ -15,6 +15,10 @@ BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 
 
+def _parse_csv(raw: str) -> list[str]:
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
 def _load_nodes_from_env() -> dict:
     """从环境变量加载节点配置（JSON 格式）."""
     nodes_json = os.environ.get("NODES_JSON", "")
@@ -45,6 +49,8 @@ def _load_node_web_urls_from_env() -> dict:
 JWT_SECRET: str = os.environ.get("JWT_SECRET", "change-this-secret")
 JWT_ALGORITHM: str = os.environ.get("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_HOURS: int = int(os.environ.get("JWT_EXPIRE_HOURS", "24"))
+
+ENV: str = os.environ.get("ENV", "dev").lower()
 
 # 服务间鉴权密钥 — 用于回写 Servermanager 的 VPS 访问信息
 INTERNAL_SERVICE_TOKEN: str = os.environ.get(
@@ -126,3 +132,47 @@ FRP_CONTAINER_PORT_RANGE: tuple[int, int] = (
 
 # VPS 公网 IP（用于生成 SSH 访问地址）
 VPS_PUBLIC_IP: str = os.environ.get("VPS_PUBLIC_IP", "your-vps-public-ip")
+
+# 代理白名单配置
+PROXY_ALLOWED_PATH_PREFIXES: tuple[str, ...] = tuple(
+    _parse_csv(
+        os.environ.get(
+            "PROXY_ALLOWED_PATH_PREFIXES",
+            "/api/instances,/api/quota/me,/api/gpus/status,/api/auth/me,/api/meta",
+        )
+    )
+)
+PROXY_ALLOWED_METHODS: tuple[str, ...] = tuple(
+    method.upper()
+    for method in _parse_csv(
+        os.environ.get("PROXY_ALLOWED_METHODS", "GET,POST,PUT,PATCH,DELETE")
+    )
+)
+
+
+def _ensure_secure_production_config() -> None:
+    if ENV != "prod":
+        return
+
+    invalid_values = {
+        "JWT_SECRET": {"", "change-this-secret", "change-this-to-a-strong-secret-key"},
+        "INTERNAL_SERVICE_TOKEN": {
+            "",
+            "change-this-internal-service-token",
+        },
+        "ADMIN_PASSWORD": {"", "admin123", "your-strong-admin-password"},
+        "FRP_TOKEN": {"", "your-frp-secret-token"},
+    }
+
+    bad = [
+        key
+        for key, disallowed in invalid_values.items()
+        if str(globals().get(key, "")) in disallowed
+    ]
+    if bad:
+        raise RuntimeError(
+            "Refusing to start in ENV=prod with insecure config: " + ", ".join(bad)
+        )
+
+
+_ensure_secure_production_config()

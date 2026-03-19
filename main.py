@@ -6,6 +6,7 @@ GPU 集群跳板机聚合管理服务 — 主入口
 import asyncio
 import logging
 import os
+from urllib.parse import unquote
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -14,7 +15,12 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import config
-from auth import get_current_user, get_optional_user, router as auth_router
+from auth import (
+    get_current_user,
+    get_current_user_info,
+    get_optional_user,
+    router as auth_router,
+)
 
 # ── 日志配置 ───────────────────────────────────────────────────────────────
 
@@ -24,17 +30,21 @@ logger = logging.getLogger("cluster_manager")
 logger.setLevel(logging.INFO)
 
 file_handler = logging.FileHandler("logs/aggregator.log", encoding="utf-8")
-file_handler.setFormatter(logging.Formatter(
-    "%(asctime)s  %(levelname)-8s  %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-))
+file_handler.setFormatter(
+    logging.Formatter(
+        "%(asctime)s  %(levelname)-8s  %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+)
 logger.addHandler(file_handler)
 
 console_handler = logging.StreamHandler()
-console_handler.setFormatter(logging.Formatter(
-    "%(asctime)s  %(levelname)-8s  %(message)s",
-    datefmt="%H:%M:%S",
-))
+console_handler.setFormatter(
+    logging.Formatter(
+        "%(asctime)s  %(levelname)-8s  %(message)s",
+        datefmt="%H:%M:%S",
+    )
+)
 logger.addHandler(console_handler)
 
 # ── FastAPI 应用 ───────────────────────────────────────────────────────────
@@ -44,14 +54,93 @@ app.include_router(auth_router)
 
 # 请求超时（秒）
 REQUEST_TIMEOUT = 5.0
+HOP_BY_HOP_HEADERS = {
+    "host",
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailers",
+    "transfer-encoding",
+    "upgrade",
+    "x-internal-token",
+}
+
+
+def _extract_bearer_token(request: Request) -> str:
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        return auth_header.replace("Bearer ", "", 1)
+    return ""
+
+
+def _is_safe_proxy_path(path: str) -> bool:
+    normalized = "/" + path.lstrip("/")
+    decoded = unquote(normalized).lower()
+    if ".." in decoded or "\\" in decoded:
+        return False
+    return any(
+        normalized.startswith(prefix) for prefix in config.PROXY_ALLOWED_PATH_PREFIXES
+    )
+
+
+def _sanitize_proxy_headers(request: Request, user_token: str) -> dict[str, str]:
+    headers = {
+        key: value
+        for key, value in request.headers.items()
+        if key.lower() not in HOP_BY_HOP_HEADERS and key.lower() != "authorization"
+    }
+    headers["Authorization"] = f"Bearer {user_token}"
+    return headers
+
+
+async def _is_container_owned_by_user(
+    client: httpx.AsyncClient,
+    container_name: str,
+    user_token: str,
+    node_id: Optional[str] = None,
+) -> bool:
+    """Check whether a container belongs to current user across allowed nodes."""
+    if not user_token:
+        return False
+
+    node_items = (
+        [(node_id, config.NODES[node_id])]
+        if node_id and node_id in config.NODES
+        else list(config.NODES.items())
+    )
+    headers = {"Authorization": f"Bearer {user_token}"}
+    for _, node_cfg in node_items:
+        try:
+            resp = await client.get(
+                f"{node_cfg['api']}/api/instances",
+                headers=headers,
+                timeout=REQUEST_TIMEOUT,
+            )
+            if resp.status_code >= 400:
+                continue
+            payload = resp.json()
+            instances: List[Any] = (
+                payload if isinstance(payload, list) else payload.get("instances", [])
+            )
+            for instance in instances:
+                if instance.get("container_name") == container_name:
+                    return True
+        except Exception:
+            continue
+    return False
 
 
 # ── 辅助函数 ───────────────────────────────────────────────────────────────
+
 
 async def _fetch_node_status(
     client: httpx.AsyncClient,
     node_id: str,
     node_cfg: Dict[str, Any],
+    user_token: str,
+    is_admin: bool,
 ) -> Dict[str, Any]:
     """并发获取单个节点的 GPU 状态和实例数据。
 
@@ -64,31 +153,48 @@ async def _fetch_node_status(
         包含节点状态的字典
     """
     result: Dict[str, Any] = {
-        "node_id":        node_id,
-        "name":           node_cfg["name"],
-        "online":         False,
-        "gpu_model":      node_cfg["gpu_model"],
-        "gpu_total":      node_cfg["gpu_count"],
-        "gpu_free":       0,
-        "gpu_used":       0,
+        "node_id": node_id,
+        "name": node_cfg["name"],
+        "online": False,
+        "gpu_model": node_cfg["gpu_model"],
+        "gpu_total": node_cfg["gpu_count"],
+        "gpu_free": 0,
+        "gpu_used": 0,
         "instance_count": 0,
-        "gpus":           [],
-        "web_url":        config.NODE_WEB_URLS.get(node_id, ""),
+        "gpus": [],
+        "web_url": config.NODE_WEB_URLS.get(node_id, ""),
     }
 
-    headers = {"Authorization": f"Bearer {node_cfg['admin_token']}"}
-
     try:
+        if is_admin:
+            status_headers = {"Authorization": f"Bearer {node_cfg['admin_token']}"}
+            instances_path = "/api/admin/instances"
+        else:
+            status_headers = {"Authorization": f"Bearer {user_token}"}
+            instances_path = "/api/instances"
+
         # 并发请求 GPU 状态 和 实例列表
         gpu_resp, inst_resp = await asyncio.gather(
-            client.get(f"{node_cfg['api']}/api/gpus/status", headers=headers, timeout=REQUEST_TIMEOUT),
-            client.get(f"{node_cfg['api']}/api/admin/instances", headers=headers, timeout=REQUEST_TIMEOUT),
+            client.get(
+                f"{node_cfg['api']}/api/gpus/status",
+                headers=status_headers,
+                timeout=REQUEST_TIMEOUT,
+            ),
+            client.get(
+                f"{node_cfg['api']}{instances_path}",
+                headers=status_headers,
+                timeout=REQUEST_TIMEOUT,
+            ),
         )
 
-        gpu_resp.raise_for_status()
         inst_resp.raise_for_status()
 
-        gpu_data = gpu_resp.json()
+        gpu_data: Any = []
+        if gpu_resp.status_code < 400:
+            gpu_data = gpu_resp.json()
+        elif is_admin:
+            gpu_resp.raise_for_status()
+
         inst_data = inst_resp.json()
 
         # 解析 GPU 列表
@@ -108,14 +214,16 @@ async def _fetch_node_status(
         elif isinstance(inst_data, dict) and "instances" in inst_data:
             instances = inst_data["instances"]
 
-        result.update({
-            "online":         True,
-            "gpu_free":       free_count,
-            "gpu_used":       used_count,
-            "gpu_total":      len(gpus) if gpus else node_cfg["gpu_count"],
-            "instance_count": len(instances),
-            "gpus":           gpus,
-        })
+        result.update(
+            {
+                "online": True,
+                "gpu_free": free_count,
+                "gpu_used": used_count,
+                "gpu_total": len(gpus) if gpus else node_cfg["gpu_count"],
+                "instance_count": len(instances),
+                "gpus": gpus,
+            }
+        )
 
     except Exception as exc:
         logger.warning("节点 %s (%s) 请求失败: %s", node_id, node_cfg["api"], exc)
@@ -158,6 +266,7 @@ async def _fetch_node_instances(
 
         # 获取 FRP 访问映射
         from frp_manager import frp_visitor_manager
+
         mappings = frp_visitor_manager.get_all_mappings()
 
         for inst in instances:
@@ -183,16 +292,23 @@ async def _fetch_node_instances(
 
 # ── API 端点 ───────────────────────────────────────────────────────────────
 
+
 @app.get("/api/cluster/status")
-async def cluster_status() -> Dict[str, Any]:
+async def cluster_status(
+    request: Request,
+    user_info: dict[str, Any] = Depends(get_current_user_info),
+) -> Dict[str, Any]:
     """集群状态接口 — 并发聚合所有节点的 GPU 和实例数据。
 
     Returns:
         包含 nodes 列表和 summary 汇总的字典
     """
+    user_token = _extract_bearer_token(request)
+    user_is_admin = bool(user_info.get("is_admin", False))
+
     async with httpx.AsyncClient() as client:
         tasks = [
-            _fetch_node_status(client, nid, ncfg)
+            _fetch_node_status(client, nid, ncfg, user_token, user_is_admin)
             for nid, ncfg in config.NODES.items()
         ]
         nodes = await asyncio.gather(*tasks)
@@ -204,8 +320,8 @@ async def cluster_status() -> Dict[str, Any]:
     return {
         "nodes": nodes,
         "summary": {
-            "total_gpu":       total_gpu,
-            "free_gpu":        free_gpu,
+            "total_gpu": total_gpu,
+            "free_gpu": free_gpu,
             "total_instances": total_instances,
         },
     }
@@ -226,8 +342,7 @@ async def my_instances(
         包含 instances 列表的字典
     """
     # 提取原始 token 转发给各节点
-    auth_header = request.headers.get("Authorization", "")
-    user_token = auth_header.replace("Bearer ", "") if auth_header.startswith("Bearer ") else ""
+    user_token = _extract_bearer_token(request)
 
     async with httpx.AsyncClient() as client:
         tasks = [
@@ -247,7 +362,12 @@ async def my_instances(
     "/api/proxy/{node_id}/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
 )
-async def proxy(node_id: str, path: str, request: Request) -> Response:
+async def proxy(
+    node_id: str,
+    path: str,
+    request: Request,
+    user_info: dict[str, Any] = Depends(get_current_user_info),
+) -> Response:
     """节点直连代理接口 — 透明转发请求到对应节点。
 
     Args:
@@ -264,44 +384,66 @@ async def proxy(node_id: str, path: str, request: Request) -> Response:
     if node_id not in config.NODES:
         raise HTTPException(status_code=404, detail=f"节点 {node_id} 不存在")
 
-    node_cfg = config.NODES[node_id]
-    target_url = f"{node_cfg['api']}/{path}"
+    method = request.method.upper()
+    if method not in config.PROXY_ALLOWED_METHODS:
+        raise HTTPException(status_code=403, detail="代理方法不允许")
 
-    # 保留原始 headers（含 Authorization）
-    headers = dict(request.headers)
-    headers.pop("host", None)
+    if not _is_safe_proxy_path(path):
+        raise HTTPException(status_code=403, detail="代理路径不允许")
+
+    user_token = _extract_bearer_token(request)
+    if not user_token:
+        raise HTTPException(status_code=401, detail="未提供有效 token")
+
+    node_cfg = config.NODES[node_id]
+    normalized_path = "/" + path.lstrip("/")
+    target_url = f"{node_cfg['api']}{normalized_path}"
+    headers = _sanitize_proxy_headers(request, user_token)
 
     body = await request.body()
 
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.request(
-                method=request.method,
+                method=method,
                 url=target_url,
                 headers=headers,
                 content=body,
                 params=dict(request.query_params),
                 timeout=REQUEST_TIMEOUT,
             )
+        response_headers = {
+            key: value
+            for key, value in resp.headers.items()
+            if key.lower() not in HOP_BY_HOP_HEADERS
+        }
         return Response(
             content=resp.content,
             status_code=resp.status_code,
-            headers=dict(resp.headers),
+            headers=response_headers,
         )
     except Exception as exc:
-        logger.error("代理转发到节点 %s 失败: %s", node_id, exc)
+        logger.error(
+            "代理转发失败 user=%s node=%s path=%s err=%s",
+            user_info.get("username", "-"),
+            node_id,
+            normalized_path,
+            exc,
+        )
         raise HTTPException(status_code=502, detail=f"节点 {node_id} 请求失败: {exc}")
 
 
 # ── 节点 Web URL 接口（供前端获取跳转地址）──────────────────────────────────
 
+
 @app.get("/api/cluster/node_urls")
-async def node_urls() -> Dict[str, str]:
+async def node_urls(username: str = Depends(get_current_user)) -> Dict[str, str]:
     """返回各节点的 Web 访问地址（供前端跳转使用）。
 
     Returns:
         node_id → web_url 的映射字典
     """
+    del username
     return config.NODE_WEB_URLS
 
 
@@ -314,10 +456,12 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 async def index():
     """将根路径重定向到前端页面。"""
     from fastapi.responses import FileResponse
+
     return FileResponse("static/index.html")
 
 
 # ── 启动日志 ───────────────────────────────────────────────────────────────
+
 
 @app.on_event("startup")
 async def startup_event() -> None:
@@ -330,6 +474,7 @@ async def startup_event() -> None:
     # 同步 FRP visitor 配置
     try:
         from frp_manager import frp_visitor_manager
+
         frp_visitor_manager.update_config()
         logger.info("FRP visitor 配置已同步")
     except Exception as exc:
@@ -338,15 +483,27 @@ async def startup_event() -> None:
 
 # ── FRP 容器访问管理 ─────────────────────────────────────────────────────────
 
+
 @app.get("/api/frp/containers")
 async def list_frp_containers(
-    user: dict = Depends(get_current_user),
+    request: Request,
+    user_info: dict[str, Any] = Depends(get_current_user_info),
 ) -> dict[str, Any]:
     """返回所有容器的 FRP 访问映射（管理员功能）."""
-    del user
     from frp_manager import frp_visitor_manager
 
     mappings = frp_visitor_manager.get_all_mappings()
+    if not user_info.get("is_admin", False):
+        user_token = _extract_bearer_token(request)
+        async with httpx.AsyncClient() as client:
+            allowed = []
+            for container_name, mapping in mappings.items():
+                if await _is_container_owned_by_user(
+                    client, container_name, user_token
+                ):
+                    allowed.append((container_name, mapping))
+            mappings = dict(allowed)
+
     return {
         "success": True,
         "count": len(mappings),
@@ -357,15 +514,23 @@ async def list_frp_containers(
 @app.get("/api/frp/containers/{container_name}")
 async def get_frp_container_access(
     container_name: str,
-    user: dict = Depends(get_current_user),
+    request: Request,
+    user_info: dict[str, Any] = Depends(get_current_user_info),
 ) -> dict[str, Any]:
     """返回单个容器的 FRP 访问信息."""
-    del user
     from frp_manager import frp_visitor_manager
 
     mappings = frp_visitor_manager.get_all_mappings()
     if container_name not in mappings:
         raise HTTPException(status_code=404, detail="Container not found")
+
+    if not user_info.get("is_admin", False):
+        user_token = _extract_bearer_token(request)
+        async with httpx.AsyncClient() as client:
+            if not await _is_container_owned_by_user(
+                client, container_name, user_token
+            ):
+                raise HTTPException(status_code=403, detail="无权访问该实例")
 
     return {
         "success": True,
@@ -375,10 +540,12 @@ async def get_frp_container_access(
 
 @app.post("/api/frp/sync")
 async def sync_frp_config(
-    user: dict = Depends(get_current_user),
+    user_info: dict[str, Any] = Depends(get_current_user_info),
 ) -> dict[str, Any]:
     """手动触发 FRP 配置同步."""
-    del user
+    if not user_info.get("is_admin", False):
+        raise HTTPException(status_code=403, detail="仅管理员可执行该操作")
+
     from frp_manager import frp_visitor_manager
 
     success = frp_visitor_manager.update_config()
@@ -391,7 +558,8 @@ async def sync_frp_config(
 @app.post("/api/cluster/instances/{instance_id}/connect")
 async def get_instance_connect_info(
     instance_id: str,
-    user: dict = Depends(get_current_user),
+    request: Request,
+    user_info: dict[str, Any] = Depends(get_current_user_info),
 ) -> dict[str, Any]:
     """获取实例的连接信息（包括 FRP 访问地址）."""
     from frp_manager import frp_visitor_manager
@@ -409,17 +577,30 @@ async def get_instance_connect_info(
 
     # 从节点获取实例详情
     node = config.NODES[node_id]
+    user_token = _extract_bearer_token(request)
+    user_is_admin = bool(user_info.get("is_admin", False))
+
     try:
-        headers = {"Authorization": f"Bearer {node['admin_token']}"}
+        headers = {
+            "Authorization": (
+                f"Bearer {node['admin_token']}"
+                if user_is_admin
+                else f"Bearer {user_token}"
+            )
+        }
+        list_path = "/api/admin/instances" if user_is_admin else "/api/instances"
         async with httpx.AsyncClient() as client:
             # 获取实例列表
             resp = await client.get(
-                f"{node['api']}/api/instances",
+                f"{node['api']}{list_path}",
                 headers=headers,
                 timeout=5.0,
             )
             resp.raise_for_status()
-            instances = resp.json()
+            payload = resp.json()
+            instances: List[Any] = (
+                payload if isinstance(payload, list) else payload.get("instances", [])
+            )
 
             # 找到目标实例
             target = None

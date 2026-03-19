@@ -251,6 +251,14 @@ def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> str:
     Raises:
         HTTPException: token 缺失或无效时返回 401
     """
+    user_info = get_current_user_info(token)
+    return str(user_info["username"])
+
+
+def get_current_user_info(
+    token: Optional[str] = Depends(oauth2_scheme),
+) -> dict[str, Any]:
+    """从 JWT token 中验证并提取用户信息。"""
     if token is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -261,19 +269,23 @@ def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> str:
         payload = jwt.decode(
             token, config.JWT_SECRET, algorithms=[config.JWT_ALGORITHM]
         )
-        username: Optional[str] = payload.get("sub")
-        if username is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="无效的 token",
-            )
-        return username
-    except JWTError:
+    except JWTError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="无效的 token 或已过期",
             headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+    username: Optional[str] = payload.get("sub")
+    if username is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的 token",
         )
+    return {
+        "username": username,
+        "is_admin": bool(payload.get("is_admin", False)),
+    }
 
 
 def get_optional_user(token: Optional[str] = Depends(oauth2_scheme)) -> Optional[str]:
