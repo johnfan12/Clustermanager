@@ -398,13 +398,6 @@ tbody tr:last-child td{border-bottom:none}
         <div class="auth-side">
             <h1>GPU 集群管理</h1>
             <p class="subtitle">选择目标服务器，注册或登录后即可进入管理。</p>
-            <div class="steps-bar">
-                <span class="step"><span class="step-num">1</span>选择服务器</span>
-                <span class="arrow">→</span>
-                <span class="step"><span class="step-num">2</span>注册 / 登录</span>
-                <span class="arrow">→</span>
-                <span class="step"><span class="step-num">3</span>进入管理</span>
-            </div>
             <div class="section-label">
                 <h2>可用服务器</h2>
                 <span class="tip" id="node-summary">加载中...</span>
@@ -417,10 +410,8 @@ tbody tr:last-child td{border-bottom:none}
                 <button id="login-tab" class="tab active" type="button">登录</button>
                 <button id="register-tab" class="tab" type="button">注册</button>
             </div>
-            <div class="auth-panel-title">进入计算服务器</div>
-            <div class="auth-panel-subtitle">请先在左侧选择一台在线的服务器节点。</div>
 
-            <div class="selected-node-box">
+            <div class="selected-node-box hidden">
                 <div class="selected-node-text">
                     <strong id="selected-node-name">尚未选择服务器</strong>
                     <div id="selected-node-meta">请先在左侧选中一个可用节点</div>
