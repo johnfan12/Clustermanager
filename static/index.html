@@ -237,12 +237,6 @@ input{font-family:inherit}
 .header h1{font-size:16px;font-weight:600;color:var(--text)}
 .header-sub{color:var(--muted);font-size:12px;margin-top:1px}
 .header-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
-.current-node-pill{
-  display:inline-flex;align-items:center;gap:4px;
-  padding:4px 10px;border-radius:2px;
-  border:1px solid #c7e0f4;background:var(--accent-light);
-  color:var(--accent);font-size:12px;font-weight:500;
-}
 .username{font-weight:600;color:var(--text);font-size:13px}
 .last-update{color:var(--muted);font-size:11px}
 
@@ -463,7 +457,6 @@ tbody tr:last-child td{border-bottom:none}
             <div class="header-sub">集群总览与实例快照</div>
         </div>
         <div class="header-right">
-            <span class="current-node-pill" id="current-node-pill">当前服务器: 未选择</span>
             <span class="last-update" id="last-update"></span>
             <span>👤 <span class="username" id="header-username"></span></span>
             <button class="action-btn primary" id="enter-server-btn" type="button">进入当前服务器</button>
@@ -573,7 +566,6 @@ const els = {
     selectedNodeMeta: document.getElementById("selected-node-meta"),
     selectedNodeTag: document.getElementById("selected-node-tag"),
     headerUsername: document.getElementById("header-username"),
-    currentNodePill: document.getElementById("current-node-pill"),
     lastUpdate: document.getElementById("last-update"),
     logoutBtn: document.getElementById("logout-btn"),
     enterServerBtn: document.getElementById("enter-server-btn"),
@@ -787,7 +779,6 @@ function renderAuthNodes() {
 
 function renderHeader() {
     els.headerUsername.textContent = state.user && state.user.username ? state.user.username : "-";
-    els.currentNodePill.textContent = "当前服务器: " + (state.currentNodeName || "未选择");
     els.entryBannerTitle.textContent = state.currentNodeName
         ? ("已连接 " + state.currentNodeName)
         : "当前登录服务器未设置";
@@ -992,14 +983,14 @@ function renderCluster(data) {
         const isCurrent = state.currentNodeId && state.currentNodeId === node.node_id;
 
         html += '<tr class="clickable-row' + (isCurrent ? ' expanded' : '') + '" data-node="' + escHtml(node.node_id) + '">';
-        html += '<td>' + escHtml(node.name || node.node_id) + (isCurrent ? ' <span class="tag primary">当前</span>' : '') + '</td>';
+        html += '<td>' + escHtml(node.name || node.node_id) + '</td>';
         html += '<td class="' + statusCls + '">' + statusTxt + '</td>';
         html += '<td class="' + gpuCls + '">' + escHtml(String(node.gpu_free)) + '/' + escHtml(String(node.gpu_total)) + '</td>';
         html += '<td>' + escHtml(node.gpu_model || '—') + '</td>';
         html += '<td>' + escHtml(String(node.instance_count || 0)) + '</td>';
         html += '<td>';
         if (entryUrl) {
-            html += '<a class="btn-primary" href="' + escHtml(entryUrl) + '" target="_blank" onclick="event.stopPropagation()">' + (isCurrent ? '进入服务器' : '进入管理') + '</a>';
+            html += '<a class="btn-primary" href="' + escHtml(entryUrl) + '" target="_blank" onclick="event.stopPropagation()">进入管理</a>';
         } else {
             html += '<span style="color:var(--muted)">—</span>';
         }
