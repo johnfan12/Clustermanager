@@ -238,8 +238,6 @@ input{font-family:inherit}
 .header-sub{color:var(--muted);font-size:12px;margin-top:1px}
 .header-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
 .username{font-weight:600;color:var(--text);font-size:13px}
-.last-update{color:var(--muted);font-size:11px}
-
 .action-btn{
   padding:6px 12px;border-radius:2px;font-size:13px;font-weight:500;
   border:1px solid var(--border);background:var(--surface);color:var(--text);
@@ -253,17 +251,6 @@ input{font-family:inherit}
 .action-btn:disabled{opacity:.4;cursor:not-allowed}
 
 .container{max-width:1280px;margin:0 auto;padding:16px 24px}
-
-.entry-banner{
-  display:flex;align-items:center;justify-content:space-between;gap:16px;
-  padding:12px 16px;
-  border:1px solid #c7e0f4;
-  border-radius:var(--radius);
-  background:var(--accent-light);
-  margin-bottom:16px;
-}
-.entry-banner strong{color:var(--text);font-size:14px}
-.entry-banner p{color:var(--muted);font-size:13px;margin-top:2px}
 
 .section{
   background:var(--surface);
@@ -371,7 +358,7 @@ tbody tr:last-child td{border-bottom:none}
   .node-list{max-height:220px}
 }
 @media(max-width:720px){
-  .header,.entry-banner,.section-header,.selected-node-box{
+  .header,.section-header,.selected-node-box{
     flex-direction:column;align-items:flex-start;
   }
   .header-right{justify-content:flex-start}
@@ -457,22 +444,11 @@ tbody tr:last-child td{border-bottom:none}
             <div class="header-sub">集群总览与实例快照</div>
         </div>
         <div class="header-right">
-            <span class="last-update" id="last-update"></span>
-            <span>👤 <span class="username" id="header-username"></span></span>
-            <button class="action-btn primary" id="enter-server-btn" type="button">进入当前服务器</button>
             <button class="action-btn" id="logout-btn" type="button">退出</button>
         </div>
     </div>
 
     <div class="container">
-        <div class="entry-banner">
-            <div>
-                <strong id="entry-banner-title">当前登录服务器未设置</strong>
-                <p id="entry-banner-text">登录后可从这里直接跳转到目标服务器管理页。</p>
-            </div>
-            <button class="action-btn primary" id="banner-enter-btn" type="button">进入服务器</button>
-        </div>
-
         <div class="section">
             <div class="section-header">
                 <h2>集群总览</h2>
@@ -565,13 +541,7 @@ const els = {
     selectedNodeName: document.getElementById("selected-node-name"),
     selectedNodeMeta: document.getElementById("selected-node-meta"),
     selectedNodeTag: document.getElementById("selected-node-tag"),
-    headerUsername: document.getElementById("header-username"),
-    lastUpdate: document.getElementById("last-update"),
     logoutBtn: document.getElementById("logout-btn"),
-    enterServerBtn: document.getElementById("enter-server-btn"),
-    bannerEnterBtn: document.getElementById("banner-enter-btn"),
-    entryBannerTitle: document.getElementById("entry-banner-title"),
-    entryBannerText: document.getElementById("entry-banner-text"),
     clusterSummary: document.getElementById("cluster-summary"),
     clusterTbody: document.getElementById("cluster-tbody"),
     instanceSummary: document.getElementById("instance-summary"),
@@ -778,15 +748,7 @@ function renderAuthNodes() {
 }
 
 function renderHeader() {
-    els.headerUsername.textContent = state.user && state.user.username ? state.user.username : "-";
-    els.entryBannerTitle.textContent = state.currentNodeName
-        ? ("已连接 " + state.currentNodeName)
-        : "当前登录服务器未设置";
-    els.entryBannerText.textContent = state.currentEntryUrl
-        ? "点击右侧按钮可直接跳转到对应服务器管理页面。"
-        : "暂无可用直达地址，请先选择服务器并重新登录。";
-    els.enterServerBtn.disabled = !state.currentEntryUrl;
-    els.bannerEnterBtn.disabled = !state.currentEntryUrl;
+    // header intentionally minimal: only global logout action
 }
 
 function showLogin() {
@@ -948,11 +910,7 @@ async function loadAll() {
 }
 
 function updateTime() {
-    const now = new Date();
-    const hh = String(now.getHours()).padStart(2, "0");
-    const mm = String(now.getMinutes()).padStart(2, "0");
-    const ss = String(now.getSeconds()).padStart(2, "0");
-    els.lastUpdate.textContent = "更新于 " + hh + ":" + mm + ":" + ss;
+    // no-op after removing top-right timestamp block
 }
 
 async function loadCluster() {
@@ -1120,8 +1078,6 @@ els.registerTab.addEventListener("click", function() { switchTab("register"); })
 els.loginForm.addEventListener("submit", doLogin);
 els.registerForm.addEventListener("submit", doRegister);
 els.logoutBtn.addEventListener("click", logout);
-els.enterServerBtn.addEventListener("click", openCurrentServer);
-els.bannerEnterBtn.addEventListener("click", openCurrentServer);
 
 document.getElementById("login-password").addEventListener("keydown", function(event) {
     if (event.key === "Enter") doLogin(event);
