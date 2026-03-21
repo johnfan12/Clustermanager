@@ -405,21 +405,33 @@ async def login(payload: NodeLoginRequest) -> TokenResponse:
 
 @router.post("/register", response_model=TokenResponse)
 async def register(payload: NodeRegisterRequest) -> TokenResponse:
-    """在指定节点注册账号，并自动登录返回共享 JWT。"""
+    """注册聚合层账号；节点在线则同步到节点并自动登录。"""
     upsert_cluster_user(payload.username, payload.email, payload.password)
-    await _register_to_node(
-        payload.node_id,
-        payload.username,
-        payload.email,
-        payload.password,
-    )
-    token_response = await _login_to_node(
-        payload.node_id,
-        payload.username,
-        payload.password,
-    )
-    token_response.message = "注册成功，已自动登录"
-    return token_response
+
+    try:
+        await _register_to_node(
+            payload.node_id,
+            payload.username,
+            payload.email,
+            payload.password,
+        )
+        token_response = await _login_to_node(
+            payload.node_id,
+            payload.username,
+            payload.password,
+        )
+        token_response.message = "注册成功，已自动登录"
+        return token_response
+    except HTTPException as exc:
+        # 节点离线或当前节点未开放注册：先完成聚合层注册与登录。
+        if exc.status_code in (400, 403, 409, 502, 503):
+            token_response = _build_cluster_local_login_response(
+                username=payload.username,
+                is_admin=False,
+                message="已完成聚合层注册；节点恢复或切换后会自动同步账号",
+            )
+            return token_response
+        raise
 
 
 @router.get("/me")

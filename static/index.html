@@ -822,9 +822,6 @@ async function loadAuthNodes() {
 function requireSelectedNode(mode) {
     const node = getSelectedNode();
     if (!node) throw new Error("请先选择服务器");
-    if (mode === "register" && !node.allow_register) {
-        throw new Error("当前节点未开放注册，请切换到其他节点或使用已有账号登录");
-    }
     return node;
 }
 
