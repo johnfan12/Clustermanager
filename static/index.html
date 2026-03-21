@@ -759,7 +759,6 @@ function renderAuthNodes() {
         html += '<div class="node-tags">';
         html += '<span class="tag">' + (node.allow_register ? '可注册' : '仅登录') + '</span>';
         if (selected) html += '<span class="tag primary">当前选择</span>';
-        if (state.currentNodeId && state.currentNodeId === node.node_id && state.token) html += '<span class="tag primary">已登录</span>';
         html += '</div>';
         html += '</button>';
     });

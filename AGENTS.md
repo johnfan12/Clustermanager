@@ -82,11 +82,11 @@ Clustermanager 是 VPS 聚合层，负责：
 - [x] 第 1 步：为 `Clustermanager` 引入 PostgreSQL 连接配置，使用中心库连接串作为唯一数据库配置。
 - [x] 第 2 步：将 `user_store.py` 从 `sqlite3` 实现改为 PostgreSQL 存储层，优先统一到 SQLAlchemy。
 - [x] 第 3 步：为中心用户库补 schema migration 能力，使用 migration 管理表结构。
-- [ ] 第 4 步：完成 `Clustermanager` 本地联调，验证认证与聚合接口正常。
+- [x] 第 4 步：完成 `Clustermanager` 本地联调，验证认证与聚合接口正常。
 - [ ] 第 5 步：`Clustermanager` 稳定后，再启动 `Servermanager` PostgreSQL 改造。
 
 关键验收点：
 
-- [ ] 登录、注册流程正常。
+- [x] 登录、注册流程正常。
 - [ ] 聚合首页、节点列表、我的实例接口正常。
 - [ ] 服务可通过 PostgreSQL 正常启动并自动执行 Alembic migration。
