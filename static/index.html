@@ -459,6 +459,7 @@ tbody tr:last-child td{border-bottom:none}
             <div class="header-sub">集群总览与实例快照</div>
         </div>
         <div class="header-right">
+            <span id="header-user" class="muted">用户：-</span>
             <button class="action-btn" id="logout-btn" type="button">退出</button>
         </div>
     </div>
@@ -556,6 +557,7 @@ const els = {
     selectedNodeName: document.getElementById("selected-node-name"),
     selectedNodeMeta: document.getElementById("selected-node-meta"),
     selectedNodeTag: document.getElementById("selected-node-tag"),
+    headerUser: document.getElementById("header-user"),
     logoutBtn: document.getElementById("logout-btn"),
     clusterSummary: document.getElementById("cluster-summary"),
     clusterTbody: document.getElementById("cluster-tbody"),
@@ -774,7 +776,8 @@ function renderAuthNodes() {
 }
 
 function renderHeader() {
-    // header intentionally minimal: only global logout action
+    const username = state.user && state.user.username ? state.user.username : "-";
+    els.headerUser.textContent = "用户：" + username;
 }
 
 function showLogin() {
