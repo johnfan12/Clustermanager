@@ -39,7 +39,7 @@ chmod +x start.sh
 - `NODE_WEB_URLS_JSON`：前端“进入服务器”跳转地址
 - `FRP_TOKEN`：与 frps 一致
 - `FRP_VISITOR_CONFIG_DIR`：默认 `/etc/frp/visitors`
-- `CLUSTER_USER_DB_PATH`、`AUTO_PROVISION_ON_NODE_LOGIN`
+- `CLUSTER_DATABASE_URL`、`AUTO_PROVISION_ON_NODE_LOGIN`
 
 ## 常见问题（QA）
 

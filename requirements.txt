@@ -4,3 +4,5 @@ httpx
 python-jose[cryptography]
 passlib[bcrypt]
 python-dotenv>=1.0.0
+sqlalchemy>=2.0
+psycopg[binary]>=3.1

@@ -68,3 +68,25 @@ Clustermanager 是 VPS 聚合层，负责：
 - 普通用户无法读取他人实例连接信息。
 - FRP 映射返回前已通过服务活性与端口监听检查。
 - 默认密钥在生产环境无法启动。
+
+## PostgreSQL 迁移路线
+
+迁移原则：
+
+- [x] 确认采用 PostgreSQL，且从 `Clustermanager` 先开始迁移。
+- [x] 项目尚未上线，按全新 PostgreSQL 架构直接落地，不保留 SQLite 兼容路径。
+- [x] 先完成中心侧数据库基础设施，再推进到各 `Servermanager` 节点。
+
+执行步骤：
+
+- [ ] 第 1 步：为 `Clustermanager` 引入 PostgreSQL 连接配置，使用中心库连接串作为唯一数据库配置。
+- [x] 第 2 步：将 `user_store.py` 从 `sqlite3` 实现改为 PostgreSQL 存储层，优先统一到 SQLAlchemy。
+- [ ] 第 3 步：为中心用户库补 schema migration 能力，使用 migration 管理表结构。
+- [ ] 第 4 步：完成 `Clustermanager` 本地联调，验证认证与聚合接口正常。
+- [ ] 第 5 步：`Clustermanager` 稳定后，再启动 `Servermanager` PostgreSQL 改造。
+
+关键验收点：
+
+- [ ] 登录、注册流程正常。
+- [ ] 聚合首页、节点列表、我的实例接口正常。
+- [ ] 服务可通过 PostgreSQL 正常启动和初始化。

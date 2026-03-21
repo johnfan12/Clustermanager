@@ -90,9 +90,10 @@ NODES: dict = _load_nodes_from_env() or {
 ADMIN_USERNAME: str = os.environ.get("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD: str = os.environ.get("ADMIN_PASSWORD", "admin123")
 
-# 中央用户库（用于跨节点自动补建账号）
-CLUSTER_USER_DB_PATH: str = os.environ.get(
-    "CLUSTER_USER_DB_PATH", str(BASE_DIR / "runtime" / "cluster_users.db")
+# 中央用户库（PostgreSQL）
+CLUSTER_DATABASE_URL: str = os.environ.get(
+    "CLUSTER_DATABASE_URL",
+    "postgresql+psycopg://cluster_user:cluster_pass@127.0.0.1:5432/cluster_manager",
 )
 AUTO_PROVISION_ON_NODE_LOGIN: bool = (
     os.environ.get("AUTO_PROVISION_ON_NODE_LOGIN", "true").lower() == "true"
