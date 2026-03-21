@@ -11,7 +11,7 @@ from models import ClusterUser
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 def init_user_store() -> None:
-    """Initialize central user storage schema."""
+    """Verify central user storage connectivity."""
     from database import init_db
 
     init_db()

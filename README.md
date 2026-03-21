@@ -13,6 +13,17 @@
 
 ## 快速启动
 
+### 1. 准备 PostgreSQL
+
+先创建数据库和账号，例如：
+
+```sql
+CREATE USER cluster_user WITH PASSWORD 'cluster_pass';
+CREATE DATABASE cluster_manager OWNER cluster_user;
+```
+
+### 2. 安装依赖并配置环境
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -20,6 +31,20 @@ pip install -r requirements.txt
 
 cp .env.copy .env
 mkdir -p logs
+```
+
+编辑 `.env`，至少确认：
+
+```env
+CLUSTER_DATABASE_URL=postgresql+psycopg://cluster_user:cluster_pass@127.0.0.1:5432/cluster_manager
+JWT_SECRET=your-jwt-secret
+INTERNAL_SERVICE_TOKEN=your-internal-token
+FRP_TOKEN=your-frp-token
+```
+
+### 3. 安装 FRP 并启动服务
+
+```bash
 
 cd frp
 sudo bash install.sh
@@ -31,6 +56,20 @@ chmod +x start.sh
 
 默认地址：`http://127.0.0.1:9999`
 
+`start.sh` 会先执行：
+
+```bash
+alembic upgrade head
+```
+
+然后再启动 `uvicorn`。
+
+如果你只想手动初始化数据库，也可以执行：
+
+```bash
+alembic upgrade head
+```
+
 ## 关键配置
 
 - `JWT_SECRET`：需与所有 Servermanager 保持一致
@@ -40,8 +79,14 @@ chmod +x start.sh
 - `FRP_TOKEN`：与 frps 一致
 - `FRP_VISITOR_CONFIG_DIR`：默认 `/etc/frp/visitors`
 - `CLUSTER_DATABASE_URL`、`AUTO_PROVISION_ON_NODE_LOGIN`
+- Alembic 配置：`alembic.ini`
 
 ## 常见问题（QA）
+
+### Q0: 服务启动时报数据库连接失败
+- 先确认 PostgreSQL 已启动，且 `CLUSTER_DATABASE_URL` 中的库、用户、密码正确。
+- 再手动执行：`alembic upgrade head`
+- 若连接串可达但 migration 失败，先检查数据库权限是否允许建表和建索引。
 
 ### Q1: 登录后看不到节点信息 / 节点离线
 - 检查 `NODES_JSON.api` 是否可从 VPS 访问。
@@ -69,5 +114,6 @@ chmod +x start.sh
 ## 相关文件
 
 - 配置：`config.py`、`.env.copy`
+- 数据库：`database.py`、`models.py`、`alembic.ini`、`alembic/`
 - 聚合入口：`main.py`、`auth.py`
 - FRP：`frp_manager.py`、`frp/install.sh`
