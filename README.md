@@ -18,6 +18,7 @@
 先创建数据库和账号，例如：
 
 ```sql
+sudo -u postgres psql
 CREATE USER cluster_user WITH PASSWORD 'cluster_pass';
 CREATE DATABASE cluster_manager OWNER cluster_user;
 ```

@@ -175,6 +175,26 @@ def _build_token_response(
     )
 
 
+def _build_cluster_local_login_response(
+    username: str,
+    is_admin: bool = False,
+    message: str | None = None,
+) -> TokenResponse:
+    """Build a local Clustermanager login response when node is unavailable."""
+    token = create_token(username=username, is_admin=is_admin)
+    user_payload = {
+        "username": username,
+        "is_admin": is_admin,
+    }
+    return TokenResponse(
+        access_token=token,
+        username=username,
+        is_admin=is_admin,
+        user=user_payload,
+        message=message,
+    )
+
+
 async def _login_to_node(node_id: str, username: str, password: str) -> TokenResponse:
     """向节点执行登录并返回聚合后的响应。"""
     data = await _request_node_json(
@@ -329,6 +349,27 @@ async def login(payload: NodeLoginRequest) -> TokenResponse:
     try:
         return await _login_to_node(payload.node_id, payload.username, payload.password)
     except HTTPException as exc:
+        # Node unavailable: allow local login with central user store credentials.
+        if exc.status_code in (502, 503):
+            if (
+                payload.username == config.ADMIN_USERNAME
+                and payload.password == config.ADMIN_PASSWORD
+            ):
+                return _build_cluster_local_login_response(
+                    username=payload.username,
+                    is_admin=True,
+                    message="节点离线，已登录聚合层管理员账号",
+                )
+
+            if verify_cluster_user_password(payload.username, payload.password):
+                return _build_cluster_local_login_response(
+                    username=payload.username,
+                    is_admin=False,
+                    message="节点离线，已登录聚合层账号；节点恢复后可继续进入服务器",
+                )
+
+            raise HTTPException(status_code=401, detail="用户名或密码错误") from exc
+
         should_try_provision = (
             config.AUTO_PROVISION_ON_NODE_LOGIN and exc.status_code in (401, 404)
         )
