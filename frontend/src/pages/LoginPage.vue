@@ -151,7 +151,7 @@
 import { ref, computed, onMounted, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore, type UserInfo } from '@/stores/auth'
-import { useClusterStore } from '@/stores/cluster'
+import { useClusterStore, type AuthNode } from '@/stores/cluster'
 import { useToastStore } from '@/stores/toast'
 import { api } from '@/shared/utils/api'
 import AppButton from '@/components/AppButton.vue'
@@ -186,12 +186,12 @@ const authNodes = computed(() => clusterStore.authNodes)
 
 const nodeSummaryText = computed(() => {
   if (!authNodes.value.length) return '加载中...'
-  const online = authNodes.value.filter((n) => n.online).length
+  const online = authNodes.value.filter((n: AuthNode) => n.online).length
   return `${authNodes.value.length} 个节点，在线 ${online} 个`
 })
 
 const selectedNode = computed(() =>
-  authNodes.value.find((n) => n.node_id === selectedNodeId.value) || null
+  authNodes.value.find((n: AuthNode) => n.node_id === selectedNodeId.value) || null
 )
 
 const selectedNodeDisplay = computed(() => {
@@ -303,7 +303,7 @@ onMounted(async () => {
     selectedNodeId.value = authNodes.value[0].node_id
   }
   // Verify the selected node still exists
-  const exists = authNodes.value.some((n) => n.node_id === selectedNodeId.value)
+  const exists = authNodes.value.some((n: AuthNode) => n.node_id === selectedNodeId.value)
   if (!exists && authNodes.value.length) {
     selectedNodeId.value = authNodes.value[0].node_id
   }

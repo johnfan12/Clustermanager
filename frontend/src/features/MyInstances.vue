@@ -19,6 +19,7 @@
             <th>密码</th>
             <th>到期时间</th>
             <th>操作</th>
+          </tr>
         </thead>
         <tbody>
           <tr v-if="instances.length === 0">
@@ -55,9 +56,10 @@
               <span v-else>—</span>
             </td>
             <td>
-              <span :class="{ 'expire-warning': isExpiringSoon(inst.expire_at) }">
-                {{ formatExpire(inst.expire_at) }}
-              </span>
+              <div :class="{ 'expire-warning': isExpiringSoon(inst.expire_at) }">
+                <div>{{ formatExpire(inst.expire_at) }}</div>
+                <div class="countdown">剩余 {{ expireCountdown(inst.expire_at) }}</div>
+              </div>
             </td>
             <td>
               <div class="ops">
@@ -99,7 +101,7 @@
 <script setup lang="ts">
 import { computed, reactive } from 'vue'
 import type { Instance } from '@/stores/cluster'
-import { formatExpire } from '@/shared/utils/format'
+import { formatExpire, expireCountdown } from '@/shared/utils/format'
 import { copyToClipboard } from '@/shared/utils/clipboard'
 import { useToastStore } from '@/stores/toast'
 
@@ -329,7 +331,16 @@ tbody tr:last-child td { border-bottom: none; }
 /* Expire warning */
 .expire-warning {
   color: var(--color-danger);
+}
+
+.expire-warning .countdown {
   font-weight: var(--font-weight-medium);
+}
+
+.countdown {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-top: 2px;
 }
 
 /* Operations */

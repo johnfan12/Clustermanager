@@ -46,7 +46,7 @@
         <h3 class="section-subtitle">全部实例</h3>
         <div v-if="allInstances.length === 0" class="empty-sub">暂无实例数据</div>
         <div v-else class="admin-list">
-          <div v-for="inst in allInstances" :key="inst.id" class="admin-item">
+          <div v-for="inst in allInstances" :key="`${inst.node_id}-${String(inst.id)}`" class="admin-item">
             <div class="item-header">
               <strong>{{ inst.container_name }}</strong>
               <span :class="['status-badge', inst.status]">{{ statusText(inst.status) }}</span>

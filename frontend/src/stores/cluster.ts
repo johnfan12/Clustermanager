@@ -72,6 +72,14 @@ export interface Metadata {
   allow_register: boolean
 }
 
+export interface AuthNode {
+  node_id: string
+  name: string
+  web_url: string
+  online: boolean
+  allow_register: boolean
+}
+
 export interface AdminUser {
   id: number
   username: string
@@ -293,4 +301,8 @@ export const useClusterStore = defineStore('cluster', () => {
     fetchAdminUsers,
     updateUserQuota,
     fetchAdminInstances,
-    forceDeleteInstance
+    forceDeleteInstance,
+    fetchQuota,
+    fetchMetadata
+  }
+})

@@ -86,11 +86,16 @@
         <div class="field">
           <label>镜像</label>
           <select v-model="createForm.image" required>
-            <option value="pytorch">PyTorch 2.3 (CUDA 12.1)</option>
-            <option value="pytorch_old">PyTorch 2.1 (CUDA 11.8)</option>
-            <option value="tensorflow">TensorFlow 2.15</option>
-            <option value="base">Ubuntu 22.04 Base</option>
+            <option value="" disabled>选择镜像</option>
+            <option
+              v-for="(label, key) in availableImages"
+              :key="key"
+              :value="key"
+            >
+              {{ label }}
+            </option>
           </select>
+          <div v-if="!createForm.nodeId" class="field-hint">请先选择节点加载可用镜像</div>
         </div>
         <div class="field">
           <label>到期时间</label>
@@ -259,7 +264,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useClusterStore, type Instance, type NodeStatus } from '@/stores/cluster'
@@ -327,6 +332,34 @@ let sshPollTimer: ReturnType<typeof setInterval> | null = null
 // Computed
 const availableNodes = computed(() => {
   return clusterStore.nodes.filter((n: NodeStatus) => n.online && n.gpu_free > 0)
+})
+
+const availableImages = computed(() => {
+  if (!createForm.nodeId || !clusterStore.metadata) {
+    return {
+      pytorch: 'PyTorch 2.3 (CUDA 12.1)',
+      pytorch_old: 'PyTorch 2.1 (CUDA 11.8)',
+      tensorflow: 'TensorFlow 2.15',
+      base: 'Ubuntu 22.04 Base'
+    }
+  }
+  return clusterStore.metadata.available_images || {}
+})
+
+// Watch for node selection to load metadata
+watch(() => createForm.nodeId, async (nodeId) => {
+  if (nodeId) {
+    try {
+      await clusterStore.fetchMetadata(nodeId)
+      // Set default image if available
+      const images = clusterStore.metadata?.available_images
+      if (images && Object.keys(images).length > 0) {
+        createForm.image = Object.keys(images)[0]
+      }
+    } catch (e) {
+      console.error('Failed to fetch metadata:', e)
+    }
+  }
 })
 
 // Actions
@@ -676,6 +709,12 @@ onUnmounted(() => {
 .field select:focus {
   outline: none;
   border-color: var(--color-primary);
+}
+
+.field-hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-top: 2px;
 }
 
 .form-hint {
