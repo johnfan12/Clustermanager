@@ -5,7 +5,7 @@
         <div :class="['modal-panel', sizeClass]" role="dialog" aria-modal="true">
           <div class="modal-header">
             <h3 class="modal-title">{{ title }}</h3>
-            <button class="modal-close" @click="emit('close')" aria-label="关闭">✕</button>
+            <button class="modal-close" type="button" @click="onClose" aria-label="关闭">✕</button>
           </div>
           <div class="modal-body">
             <slot />
@@ -37,14 +37,20 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
+  'update:visible': [value: boolean]
   close: []
 }>()
 
 const sizeClass = computed(() => `modal-${props.size}`)
 
+function onClose() {
+  emit('update:visible', false)
+  emit('close')
+}
+
 function onBackdrop() {
   if (props.closeOnBackdrop) {
-    emit('close')
+    onClose()
   }
 }
 </script>
