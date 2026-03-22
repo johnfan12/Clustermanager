@@ -244,7 +244,6 @@ async function doLogin() {
     }, { skipAuth: true })
 
     authStore.setSession(data)
-    toast.success(`已登录 ${data.node_name || node.name}`)
     router.push({ name: 'Dashboard' })
   } catch (e: unknown) {
     loginError.value = (e as Error).message || '登录失败'
