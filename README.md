@@ -57,6 +57,30 @@ chmod +x start.sh
 
 默认地址：`http://127.0.0.1:9999`
 
+## 前端配置
+
+### 方式一：独立开发模式（推荐开发时使用）
+
+前端使用 Vue 3 + TypeScript + Vite 构建。
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+开发服务器默认在 `http://localhost:5173`，会自动代理到后端 `http://127.0.0.1:9999`。
+
+### 方式二：集成到后端（生产部署）
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+构建后的文件位于 `frontend/dist/`，会被后端自动挂载为静态文件服务。
+
 `start.sh` 会先执行：
 
 ```bash
