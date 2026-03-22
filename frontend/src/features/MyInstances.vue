@@ -18,11 +18,11 @@
             <th>SSH 连接</th>
             <th>密码</th>
             <th>到期时间</th>
-          </tr>
+            <th>操作</th>
         </thead>
         <tbody>
           <tr v-if="instances.length === 0">
-            <td colspan="9" class="empty-cell">暂无运行中的实例</td>
+            <td colspan="10" class="empty-cell">暂无运行中的实例</td>
           </tr>
           <tr v-for="(inst, idx) in instances" :key="inst.container_name + '-' + idx">
             <td>{{ inst.node_name || inst.node_id || '—' }}</td>
@@ -40,6 +40,9 @@
                 <code class="ssh-cmd">{{ sshCommand(inst) }}</code>
                 <button class="copy-btn" @click="handleCopy(sshCommand(inst), $event)">📋</button>
               </div>
+              <span v-else-if="isPendingSsh(inst)" class="ssh-pending">
+                <span class="pending-spinner" /> SSH 隧道创建中...
+              </span>
               <span v-else>—</span>
             </td>
             <td>
@@ -55,6 +58,36 @@
               <span :class="{ 'expire-warning': isExpiringSoon(inst.expire_at) }">
                 {{ formatExpire(inst.expire_at) }}
               </span>
+            </td>
+            <td>
+              <div class="ops">
+                <button
+                  class="op-btn"
+                  @click="handleAction('logs', inst)"
+                >日志</button>
+                <button
+                  class="op-btn"
+                  :disabled="inst.status !== 'running'"
+                  @click="handleAction('stop', inst)"
+                >停止</button>
+                <button
+                  class="op-btn"
+                  :disabled="inst.status === 'running'"
+                  @click="handleAction('restart', inst)"
+                >重启</button>
+                <button
+                  class="op-btn"
+                  @click="handleAction('renew', inst)"
+                >续期</button>
+                <button
+                  class="op-btn"
+                  @click="handleAction('rebuild', inst)"
+                >变更配置</button>
+                <button
+                  class="op-btn danger"
+                  @click="handleAction('delete', inst)"
+                >删除</button>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -72,6 +105,12 @@ import { useToastStore } from '@/stores/toast'
 
 const props = defineProps<{
   instances: Instance[]
+  pendingSshInstances?: Set<string>
+}>()
+
+const emit = defineEmits<{
+  action: [action: string, instance: Instance]
+  refresh: []
 }>()
 
 const toast = useToastStore()
@@ -127,6 +166,16 @@ async function handleCopy(text: string, event: MouseEvent) {
     toast.success('已复制到剪贴板')
     setTimeout(() => { btn.textContent = original }, 1500)
   }
+}
+
+function handleAction(action: string, instance: Instance) {
+  emit('action', action, instance)
+}
+
+function isPendingSsh(instance: Instance): boolean {
+  if (!props.pendingSshInstances) return false
+  const key = `${instance.node_id}:${instance.id}`
+  return props.pendingSshInstances.has(key)
 }
 </script>
 
@@ -237,6 +286,28 @@ tbody tr:last-child td { border-bottom: none; }
   color: var(--color-primary);
 }
 
+/* SSH pending */
+.ssh-pending {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.pending-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* Password cell */
 .pwd-cell {
   display: flex;
@@ -260,4 +331,44 @@ tbody tr:last-child td { border-bottom: none; }
   color: var(--color-danger);
   font-weight: var(--font-weight-medium);
 }
-</style>
+
+/* Operations */
+.ops {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.op-btn {
+  padding: 3px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-primary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.op-btn:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+.op-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  color: var(--color-text-muted);
+}
+
+.op-btn.danger {
+  color: var(--color-danger);
+  border-color: var(--color-danger-border);
+}
+
+.op-btn.danger:hover:not(:disabled) {
+  background: var(--color-danger-bg);
+  border-color: var(--color-danger);
+}</style>

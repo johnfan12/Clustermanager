@@ -14,6 +14,7 @@ export interface GpuInfo {
   status: 'free' | 'used'
   allocated_to: string | null
   name?: string
+  memory_total_mb?: number
 }
 
 export interface NodeStatus {
@@ -57,12 +58,36 @@ export interface Instance {
   [key: string]: unknown
 }
 
-export interface AuthNode {
-  node_id: string
-  name: string
-  web_url: string
-  online: boolean
+export interface QuotaInfo {
+  quota_gpu: number
+  quota_memory_gb: number
+  quota_max_instances: number
+  used_gpu: number
+  used_memory_gb: number
+  used_instances: number
+}
+
+export interface Metadata {
+  available_images: Record<string, string>
   allow_register: boolean
+}
+
+export interface AdminUser {
+  id: number
+  username: string
+  email: string
+  is_admin: boolean
+  quota_gpu: number
+  quota_memory_gb: number
+  quota_max_instances: number
+  used_gpu: number
+  used_memory_gb: number
+  used_instances: number
+}
+
+export interface AdminInstance extends Instance {
+  user_id: number
+  username: string
 }
 
 // ── Store ──
@@ -73,6 +98,8 @@ export const useClusterStore = defineStore('cluster', () => {
   const summary = ref<ClusterSummary>({ total_gpu: 0, free_gpu: 0, total_instances: 0 })
   const instances = ref<Instance[]>([])
   const authNodes = ref<AuthNode[]>([])
+  const quota = ref<QuotaInfo | null>(null)
+  const metadata = ref<Metadata | null>(null)
   const loading = ref(false)
   const error = ref('')
 
@@ -83,6 +110,93 @@ export const useClusterStore = defineStore('cluster', () => {
 
   // Auto-refresh
   let _timer: ReturnType<typeof setInterval> | null = null
+
+  // ── Instance Actions ──
+
+  async function createInstance(
+    nodeId: string,
+    payload: {
+      num_gpus: number
+      memory_gb: number
+      image: string
+      expire_hours: number
+    }
+  ) {
+    const data = await api.post<{ id: number; container_name: string }>(
+      `/api/proxy/${nodeId}/api/instances`,
+      payload
+    )
+    return data
+  }
+
+  async function stopInstance(nodeId: string, instanceId: number) {
+    await api.post(`/api/proxy/${nodeId}/api/instances/${instanceId}/stop`)
+  }
+
+  async function restartInstance(nodeId: string, instanceId: number) {
+    await api.post(`/api/proxy/${nodeId}/api/instances/${instanceId}/restart`)
+  }
+
+  async function deleteInstance(nodeId: string, instanceId: number) {
+    await api.delete(`/api/proxy/${nodeId}/api/instances/${instanceId}`)
+  }
+
+  async function renewInstance(nodeId: string, instanceId: number, extendDays: number) {
+    await api.post(`/api/proxy/${nodeId}/api/instances/${instanceId}/renew`, {
+      extend_days: extendDays
+    })
+  }
+
+  async function rebuildInstance(
+    nodeId: string,
+    instanceId: number,
+    payload: { num_gpus: number; memory_gb: number }
+  ) {
+    await api.post(`/api/proxy/${nodeId}/api/instances/${instanceId}/rebuild`, payload)
+  }
+
+  async function getInstanceLogs(nodeId: string, instanceId: number): Promise<string> {
+    const data = await api.get<{ logs: string }>(
+      `/api/proxy/${nodeId}/api/instances/${instanceId}/logs`
+    )
+    return data.logs || '暂无日志'
+  }
+
+  async function fetchQuota(nodeId: string) {
+    const data = await api.get<QuotaInfo>(`/api/proxy/${nodeId}/api/quota/me`)
+    quota.value = data
+    return data
+  }
+
+  async function fetchMetadata(nodeId: string) {
+    const data = await api.get<Metadata>(`/api/proxy/${nodeId}/api/meta`)
+    metadata.value = data
+    return data
+  }
+
+  // ── Admin Actions ──
+
+  async function fetchAdminUsers(nodeId: string): Promise<AdminUser[]> {
+    const data = await api.get<AdminUser[]>(`/api/proxy/${nodeId}/api/admin/users`)
+    return data || []
+  }
+
+  async function updateUserQuota(
+    nodeId: string,
+    userId: number,
+    payload: { quota_gpu: number; quota_memory_gb: number; quota_max_instances: number }
+  ) {
+    await api.put(`/api/proxy/${nodeId}/api/admin/users/${userId}/quota`, payload)
+  }
+
+  async function fetchAdminInstances(nodeId: string): Promise<AdminInstance[]> {
+    const data = await api.get<AdminInstance[]>(`/api/proxy/${nodeId}/api/admin/instances`)
+    return data || []
+  }
+
+  async function forceDeleteInstance(nodeId: string, instanceId: number) {
+    await api.delete(`/api/proxy/${nodeId}/api/admin/instances/${instanceId}`)
+  }
 
   // Actions
   async function fetchAuthNodes() {
@@ -154,6 +268,8 @@ export const useClusterStore = defineStore('cluster', () => {
     summary,
     instances,
     authNodes,
+    quota,
+    metadata,
     loading,
     error,
     // getters
@@ -164,6 +280,17 @@ export const useClusterStore = defineStore('cluster', () => {
     fetchMyInstances,
     fetchAll,
     startAutoRefresh,
-    stopAutoRefresh
-  }
-})
+    stopAutoRefresh,
+    // instance actions
+    createInstance,
+    stopInstance,
+    restartInstance,
+    deleteInstance,
+    renewInstance,
+    rebuildInstance,
+    getInstanceLogs,
+    // admin actions
+    fetchAdminUsers,
+    updateUserQuota,
+    fetchAdminInstances,
+    forceDeleteInstance

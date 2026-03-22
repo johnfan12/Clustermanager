@@ -67,8 +67,12 @@
                     v-for="gpu in node.gpus"
                     :key="gpu.index"
                     :class="['gpu-chip', gpu.status === 'free' ? 'free' : 'used']"
+                    :title="gpu.name || `GPU ${gpu.index}`"
                   >
                     GPU {{ gpu.index }}: {{ gpu.status === 'free' ? '空闲' : (gpu.allocated_to || '占用中') }}
+                    <span v-if="gpu.memory_total_mb" class="gpu-mem">
+                      ({{ Math.round(gpu.memory_total_mb / 1024) }}GB)
+                    </span>
                   </span>
                 </div>
                 <span v-else class="muted">无 GPU 详情数据</span>
@@ -224,6 +228,12 @@ tbody tr:last-child td { border-bottom: none; }
   background: var(--color-success-bg);
   border-color: var(--color-success-border);
   color: var(--color-success);
+}
+
+.gpu-mem {
+  margin-left: 4px;
+  opacity: 0.8;
+  font-size: var(--font-size-xs);
 }
 
 /* Status */
