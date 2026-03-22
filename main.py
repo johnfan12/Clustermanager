@@ -449,15 +449,46 @@ async def node_urls(username: str = Depends(get_current_user)) -> Dict[str, str]
 
 # ── 静态文件 & 首页 ───────────────────────────────────────────────────────
 
+# 保留旧版 static 目录挂载（兼容旧版资源引用）
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
-@app.get("/")
-async def index():
-    """将根路径重定向到前端页面。"""
+@app.get("/legacy")
+async def legacy_index():
+    """旧版前端入口（迁移完成前保留）。"""
     from fastapi.responses import FileResponse
 
     return FileResponse("static/index.html")
+
+
+# ── 新前端 (Vue SPA) ──────────────────────────────────────────────────────
+# 构建产物输出到 static/dist/，由 Vite build 生成
+_SPA_DIR = os.path.join(os.path.dirname(__file__), "static", "dist")
+
+if os.path.isdir(_SPA_DIR):
+    # 挂载 SPA 静态资源（JS/CSS/图片等）
+    app.mount("/assets", StaticFiles(directory=os.path.join(_SPA_DIR, "assets")), name="spa-assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """为 Vue Router 提供 HTML5 History 回退。"""
+        from fastapi.responses import FileResponse
+
+        # 尝试直接返回文件
+        file_path = os.path.join(_SPA_DIR, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        # 否则返回 index.html 让 Vue Router 处理
+        return FileResponse(os.path.join(_SPA_DIR, "index.html"))
+else:
+    # SPA 未构建时，使用旧版首页
+    @app.get("/")
+    async def index():
+        """将根路径重定向到前端页面（SPA 未构建时回退旧版）。"""
+        from fastapi.responses import FileResponse
+
+        return FileResponse("static/index.html")
+
 
 
 # ── 启动日志 ───────────────────────────────────────────────────────────────

@@ -1,0 +1,38 @@
+/**
+ * 日期 / 文本格式化工具函数
+ */
+
+/** 格式化 ISO8601 过期时间为可读字符串 */
+export function formatExpire(value?: string | null): string {
+  if (!value) return '不限'
+  const date = new Date(value)
+  if (isNaN(date.getTime())) return String(value)
+  const yyyy = date.getFullYear()
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  const hh = String(date.getHours()).padStart(2, '0')
+  const mi = String(date.getMinutes()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}`
+}
+
+/** 计算距过期时间的剩余文字描述 */
+export function expireCountdown(value?: string | null): string {
+  if (!value) return ''
+  const now = Date.now()
+  const target = new Date(value).getTime()
+  if (isNaN(target)) return ''
+  const diff = target - now
+  if (diff <= 0) return '已过期'
+  const hours = Math.floor(diff / 3600000)
+  const days = Math.floor(hours / 24)
+  const remainHours = hours % 24
+  if (days > 0) return `${days}天${remainHours}小时`
+  return `${hours}小时`
+}
+
+/** HTML 转义 */
+export function escHtml(value: unknown): string {
+  const div = document.createElement('div')
+  div.appendChild(document.createTextNode(String(value ?? '')))
+  return div.innerHTML
+}

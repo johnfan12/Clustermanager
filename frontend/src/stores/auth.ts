@@ -1,0 +1,100 @@
+/**
+ * 认证状态管理 (Pinia store)
+ * 集中管理 JWT token、用户信息、节点选择
+ */
+
+import { defineStore } from 'pinia'
+import { ref, computed } from 'vue'
+
+const STORAGE_KEYS = {
+  token: 'cluster_token',
+  user: 'cluster_user',
+  nodeId: 'cluster_node_id',
+  nodeName: 'cluster_node_name',
+  entryUrl: 'cluster_entry_url'
+} as const
+
+export interface UserInfo {
+  username: string
+  is_admin: boolean
+  email?: string
+  [key: string]: unknown
+}
+
+function safeParse<T>(value: string | null): T | null {
+  if (!value) return null
+  try {
+    return JSON.parse(value)
+  } catch {
+    return null
+  }
+}
+
+export const useAuthStore = defineStore('auth', () => {
+  // ── State ──
+  const token = ref(localStorage.getItem(STORAGE_KEYS.token) || '')
+  const user = ref<UserInfo | null>(safeParse<UserInfo>(localStorage.getItem(STORAGE_KEYS.user)))
+  const currentNodeId = ref(localStorage.getItem(STORAGE_KEYS.nodeId) || '')
+  const currentNodeName = ref(localStorage.getItem(STORAGE_KEYS.nodeName) || '')
+  const currentEntryUrl = ref(localStorage.getItem(STORAGE_KEYS.entryUrl) || '')
+
+  // ── Getters ──
+  const isAuthenticated = computed(() => Boolean(token.value && user.value))
+  const isAdmin = computed(() => Boolean(user.value?.is_admin))
+  const username = computed(() => user.value?.username || '')
+
+  // ── Actions ──
+  function setSession(data: {
+    access_token: string
+    user?: UserInfo
+    username?: string
+    is_admin?: boolean
+    node_id?: string
+    node_name?: string
+    entry_url?: string
+  }) {
+    token.value = data.access_token || ''
+    user.value = data.user || {
+      username: data.username || '',
+      is_admin: Boolean(data.is_admin)
+    }
+    currentNodeId.value = data.node_id || ''
+    currentNodeName.value = data.node_name || ''
+    currentEntryUrl.value = data.entry_url || ''
+    persist()
+  }
+
+  function persist() {
+    localStorage.setItem(STORAGE_KEYS.token, token.value)
+    localStorage.setItem(STORAGE_KEYS.user, JSON.stringify(user.value))
+    localStorage.setItem(STORAGE_KEYS.nodeId, currentNodeId.value)
+    localStorage.setItem(STORAGE_KEYS.nodeName, currentNodeName.value)
+    localStorage.setItem(STORAGE_KEYS.entryUrl, currentEntryUrl.value)
+  }
+
+  function logout() {
+    token.value = ''
+    user.value = null
+    currentNodeId.value = ''
+    currentNodeName.value = ''
+    currentEntryUrl.value = ''
+    Object.values(STORAGE_KEYS).forEach((key) => localStorage.removeItem(key))
+  }
+
+  return {
+    // state
+    token,
+    user,
+    currentNodeId,
+    currentNodeName,
+    currentEntryUrl,
+    // getters
+    isAuthenticated,
+    isAdmin,
+    username,
+    // actions
+    setSession,
+    persist,
+    logout
+  }
+})
