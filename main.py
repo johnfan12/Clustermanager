@@ -95,6 +95,17 @@ def _sanitize_proxy_headers(request: Request, user_token: str) -> dict[str, str]
     return headers
 
 
+def _proxy_timeout_seconds(normalized_path: str) -> float:
+    """Select proxy timeout by API path.
+
+    Rebuild is a long-running operation (backup + recreate container),
+    so it needs a longer timeout than regular read/write requests.
+    """
+    if normalized_path.startswith("/api/instances/") and normalized_path.endswith("/rebuild"):
+        return config.PROXY_LONG_REQUEST_TIMEOUT_SECONDS
+    return config.PROXY_REQUEST_TIMEOUT_SECONDS
+
+
 async def _is_container_owned_by_user(
     client: httpx.AsyncClient,
     container_name: str,
@@ -403,6 +414,7 @@ async def proxy(
     body = await request.body()
 
     try:
+        timeout_seconds = _proxy_timeout_seconds(normalized_path)
         async with httpx.AsyncClient() as client:
             resp = await client.request(
                 method=method,
@@ -410,7 +422,7 @@ async def proxy(
                 headers=headers,
                 content=body,
                 params=dict(request.query_params),
-                timeout=REQUEST_TIMEOUT,
+                timeout=timeout_seconds,
             )
         response_headers = {
             key: value

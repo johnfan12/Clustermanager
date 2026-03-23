@@ -150,6 +150,16 @@ PROXY_ALLOWED_METHODS: tuple[str, ...] = tuple(
     )
 )
 
+# 代理请求超时（秒）
+PROXY_REQUEST_TIMEOUT_SECONDS: float = float(
+    os.environ.get("PROXY_REQUEST_TIMEOUT_SECONDS", "10")
+)
+
+# 长操作（如实例重建）代理超时（秒）
+PROXY_LONG_REQUEST_TIMEOUT_SECONDS: float = float(
+    os.environ.get("PROXY_LONG_REQUEST_TIMEOUT_SECONDS", "180")
+)
+
 
 def _ensure_secure_production_config() -> None:
     if ENV != "prod":
