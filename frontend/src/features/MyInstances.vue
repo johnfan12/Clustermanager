@@ -49,6 +49,7 @@
             <td>
               <div v-if="inst.ssh_password" class="pwd-cell">
                 <span>{{ passwordVisible.has(idx) ? inst.ssh_password : '****' }}</span>
+                <button class="copy-btn" @click="handleCopy(inst.ssh_password, $event)">📋</button>
                 <button class="pwd-toggle" @click="togglePassword(idx)">
                   {{ passwordVisible.has(idx) ? '🙈' : '👁' }}
                 </button>

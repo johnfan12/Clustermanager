@@ -16,12 +16,11 @@
             <th>GPU 空闲/总数</th>
             <th>GPU 型号</th>
             <th>运行实例数</th>
-            <th>操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="nodes.length === 0">
-            <td colspan="6" class="empty-cell">暂无节点数据</td>
+            <td colspan="5" class="empty-cell">暂无节点数据</td>
           </tr>
           <template v-for="node in nodes" :key="node.node_id">
             <!-- Main row -->
@@ -44,24 +43,11 @@
               </td>
               <td>{{ node.gpu_model || '—' }}</td>
               <td>{{ node.instance_count || 0 }}</td>
-              <td>
-                <a
-                  v-if="buildEntryUrl(node.web_url)"
-                  class="btn-primary"
-                  :href="buildEntryUrl(node.web_url)"
-                  target="_blank"
-                  rel="noopener"
-                  @click.stop
-                >
-                  进入管理
-                </a>
-                <span v-else class="muted">—</span>
-              </td>
             </tr>
 
             <!-- Expand row: GPU details -->
             <tr v-if="expandedNodes.has(node.node_id)" class="expand-row">
-              <td colspan="6" class="expand-cell">
+              <td colspan="5" class="expand-cell">
                 <div v-if="node.gpus && node.gpus.length" class="gpu-grid">
                   <span
                     v-for="gpu in node.gpus"
@@ -93,7 +79,6 @@ const props = defineProps<{
   nodes: NodeStatus[]
   summary: ClusterSummary
   currentNodeId: string
-  token: string
 }>()
 
 const expandedNodes = ref(new Set<string>())
@@ -111,11 +96,6 @@ function toggleExpand(nodeId: string) {
   }
 }
 
-function buildEntryUrl(webUrl?: string): string {
-  if (!webUrl) return ''
-  const separator = webUrl.includes('?') ? '&' : '?'
-  return `${webUrl}${separator}token=${encodeURIComponent(props.token)}`
-}
 </script>
 
 <style scoped>
@@ -240,21 +220,6 @@ tbody tr:last-child td { border-bottom: none; }
 .status-online { color: var(--color-success); }
 .status-offline { color: #a19f9d; }
 .gpu-zero { color: var(--color-danger); font-weight: var(--font-weight-semibold); }
-
-/* Button */
-.btn-primary {
-  display: inline-block;
-  padding: 4px 12px;
-  background: var(--color-primary);
-  color: #fff;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  transition: background var(--transition-fast);
-  text-decoration: none;
-}
-
-.btn-primary:hover { background: var(--color-primary-hover); text-decoration: none; }
 
 .muted { color: var(--color-text-muted); }
 </style>

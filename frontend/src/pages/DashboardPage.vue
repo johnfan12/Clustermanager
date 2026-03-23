@@ -24,7 +24,6 @@
           :nodes="clusterStore.nodes"
           :summary="clusterStore.summary"
           :current-node-id="authStore.currentNodeId"
-          :token="authStore.token"
         />
 
         <!-- My Instances Section -->
