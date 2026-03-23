@@ -32,7 +32,8 @@
             <div class="item-stats">
               GPU {{ user.used_gpu }}/{{ user.quota_gpu }} ·
               内存 {{ user.used_memory_gb }}G/{{ user.quota_memory_gb }}G ·
-              实例 {{ user.used_instances }}/{{ user.quota_max_instances }}
+              实例 {{ user.used_instances }}/{{ user.quota_max_instances }} ·
+              卡时 {{ formatGpuHours(user.gpu_hours_used) }}/{{ formatGpuHours(user.gpu_hours_quota) }}
             </div>
             <div class="item-actions">
               <button class="action-link" @click="openQuotaModal(user)">修改配额</button>
@@ -81,6 +82,10 @@
         <div class="field">
           <label>实例上限</label>
           <input v-model.number="quotaForm.instances" type="number" min="1" required />
+        </div>
+        <div class="field">
+          <label>卡时额度</label>
+          <input v-model.number="quotaForm.gpuHours" type="number" min="0" step="0.1" required />
         </div>
       </form>
       <template #footer>
@@ -142,8 +147,13 @@ const selectedInstance = ref<AdminInstance | null>(null)
 const quotaForm = reactive({
   gpu: 0,
   memory: 8,
-  instances: 1
+  instances: 1,
+  gpuHours: 100
 })
+
+function formatGpuHours(value: number): string {
+  return Number.isFinite(value) ? Number(value).toFixed(2) : '0.00'
+}
 
 function statusText(status: string): string {
   if (status === 'running') return '运行中'
@@ -171,6 +181,7 @@ function openQuotaModal(user: AdminUser) {
   quotaForm.gpu = user.quota_gpu
   quotaForm.memory = user.quota_memory_gb
   quotaForm.instances = user.quota_max_instances
+  quotaForm.gpuHours = user.gpu_hours_quota ?? 100
   modals.quota = true
 }
 
@@ -182,7 +193,8 @@ async function handleUpdateQuota() {
     await clusterStore.updateUserQuota(selectedNodeId.value, selectedUser.value.id, {
       quota_gpu: quotaForm.gpu,
       quota_memory_gb: quotaForm.memory,
-      quota_max_instances: quotaForm.instances
+      quota_max_instances: quotaForm.instances,
+      gpu_hours_quota: quotaForm.gpuHours
     })
     toast.success('用户配额已更新')
     modals.quota = false

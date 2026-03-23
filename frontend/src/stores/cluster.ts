@@ -98,6 +98,10 @@ export interface AdminUser {
   quota_gpu: number
   quota_memory_gb: number
   quota_max_instances: number
+  gpu_hours_quota: number
+  gpu_hours_used: number
+  gpu_hours_frozen: number
+  gpu_hours_remaining: number
   used_gpu: number
   used_memory_gb: number
   used_instances: number
@@ -207,7 +211,12 @@ export const useClusterStore = defineStore('cluster', () => {
   async function updateUserQuota(
     nodeId: string,
     userId: number,
-    payload: { quota_gpu: number; quota_memory_gb: number; quota_max_instances: number }
+    payload: {
+      quota_gpu: number
+      quota_memory_gb: number
+      quota_max_instances: number
+      gpu_hours_quota?: number
+    }
   ) {
     await api.put(`/api/proxy/${nodeId}/api/admin/users/${userId}/quota`, payload)
   }
