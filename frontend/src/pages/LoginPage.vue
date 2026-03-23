@@ -19,25 +19,18 @@
             暂无可用节点
           </div>
           <button
-            v-for="node in authNodes"
+            v-for="(node, idx) in authNodes"
             :key="node.node_id"
             :class="['node-card', { selected: node.node_id === selectedNodeId, offline: !node.online }]"
             type="button"
             @click="selectNode(node.node_id)"
           >
             <div class="node-card-header">
-              <div>
-                <div class="node-name">{{ node.name || node.node_id }}</div>
-                <div class="node-meta">{{ node.node_id }}</div>
-              </div>
+              <div class="node-name">节点{{ idx + 1 }} · {{ node.name || node.node_id }}</div>
               <span class="node-status">
                 <span :class="['dot', node.online ? 'online' : 'offline']" />
                 {{ node.online ? '在线' : '离线' }}
               </span>
-            </div>
-            <div class="node-tags">
-              <span class="tag">{{ node.allow_register ? '可注册' : '仅登录' }}</span>
-              <span v-if="node.node_id === selectedNodeId" class="tag primary">当前选择</span>
             </div>
           </button>
         </div>
@@ -60,17 +53,6 @@
           >
             注册
           </button>
-        </div>
-
-        <!-- Selected node indicator -->
-        <div class="selected-node-box">
-          <div class="selected-node-text">
-            <strong>{{ selectedNodeDisplay.name }}</strong>
-            <div class="selected-node-meta-text">{{ selectedNodeDisplay.meta }}</div>
-          </div>
-          <span :class="['tag', { primary: selectedNodeDisplay.online }]">
-            {{ selectedNodeDisplay.tag }}
-          </span>
         </div>
 
         <!-- Login Form -->
@@ -193,21 +175,6 @@ const nodeSummaryText = computed(() => {
 const selectedNode = computed(() =>
   authNodes.value.find((n: AuthNode) => n.node_id === selectedNodeId.value) || null
 )
-
-const selectedNodeDisplay = computed(() => {
-  const node = selectedNode.value
-  if (!node) {
-    return { name: '尚未选择服务器', meta: '请先在左侧选中一个可用节点', tag: '未选择', online: false }
-  }
-  return {
-    name: node.name || node.node_id,
-    meta: node.online
-      ? (node.allow_register ? '在线 · 可注册新账号' : '在线 · 仅支持已有账号登录')
-      : '当前离线',
-    tag: node.online ? '在线' : '离线',
-    online: node.online
-  }
-})
 
 // ── Methods ──
 function selectNode(nodeId: string) {
@@ -416,18 +383,11 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 4px;
 }
 
 .node-name {
   font-weight: var(--font-weight-semibold);
   font-size: var(--font-size-base);
-}
-
-.node-meta {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  margin-top: 1px;
 }
 
 .node-status {
@@ -448,31 +408,6 @@ onMounted(async () => {
 
 .dot.online { background: var(--color-success); }
 .dot.offline { background: #a19f9d; }
-
-.node-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 6px;
-}
-
-.tag {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-muted);
-  background: var(--color-surface-alt);
-}
-
-.tag.primary {
-  border-color: var(--color-primary-border);
-  color: var(--color-primary);
-  background: var(--color-primary-light);
-}
 
 /* ── Right side ── */
 .auth-main {
@@ -508,29 +443,6 @@ onMounted(async () => {
   color: var(--color-primary);
   border-bottom-color: var(--color-primary);
   font-weight: var(--font-weight-semibold);
-}
-
-.selected-node-box {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 14px;
-  border: 1px solid var(--color-primary-border);
-  border-radius: var(--radius-md);
-  background: var(--color-primary-light);
-  margin-bottom: 20px;
-}
-
-.selected-node-text strong {
-  color: var(--color-text);
-  font-size: var(--font-size-base);
-}
-
-.selected-node-meta-text {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  margin-top: 2px;
 }
 
 .auth-form {
@@ -583,10 +495,6 @@ onMounted(async () => {
 }
 
 @media (max-width: 720px) {
-  .selected-node-box {
-    flex-direction: column;
-    align-items: flex-start;
-  }
   .auth-side,
   .auth-main {
     padding: 24px 20px;
