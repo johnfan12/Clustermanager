@@ -80,6 +80,13 @@
               </option>
             </select>
             <div v-if="!createForm.nodeId" class="field-hint">请先选择节点加载可用镜像</div>
+            <div v-else-if="createImagesLoading" class="field-hint">正在加载节点镜像配置...</div>
+            <div
+              v-else-if="createForm.nodeId && Object.keys(availableImages).length === 0"
+              class="field-hint warning-text"
+            >
+              当前节点未返回可用镜像，请检查该节点 Servermanager 的 IMAGE_* 配置。
+            </div>
           </div>
           <div v-if="selectedCreateNode" class="form-hint">
             当前节点：{{ selectedCreateNode.name }}，空闲 GPU {{ selectedCreateNode.gpu_free }} / 总数 {{ selectedCreateNode.gpu_total }}。
@@ -332,7 +339,13 @@
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { useClusterStore, type Instance, type NodeStatus, type Metadata } from '@/stores/cluster'
+import {
+  useClusterStore,
+  type Instance,
+  type NodeStatus,
+  type Metadata,
+  type NodeImage
+} from '@/stores/cluster'
 import { useToastStore } from '@/stores/toast'
 import LoadingState from '@/components/LoadingState.vue'
 import AppModal from '@/components/AppModal.vue'
@@ -374,9 +387,11 @@ const createForm = reactive({
   nodeId: '',
   numGpus: 1,
   memoryGb: 16,
-  image: 'pytorch',
+  image: '',
   expireHours: 168
 })
+const createImages = ref<NodeImage[]>([])
+const createImagesLoading = ref(false)
 
 const createStep = ref(1)
 
@@ -466,7 +481,7 @@ const rebuildMemoryOptions = computed(() => {
 })
 
 const canProceedCreateStep1 = computed(() => {
-  return Boolean(createForm.nodeId && createForm.image)
+  return Boolean(createForm.nodeId && createForm.image && createImages.value.length > 0)
 })
 
 const canSubmitCreate = computed(() => {
@@ -487,33 +502,44 @@ const canSubmitRebuild = computed(() => {
 })
 
 const availableImages = computed(() => {
-  if (!createForm.nodeId || !clusterStore.metadata) {
-    return {
-      pytorch: 'PyTorch 2.3 (CUDA 12.1)',
-      pytorch_old: 'PyTorch 2.1 (CUDA 11.8)',
-      tensorflow: 'TensorFlow 2.15',
-      base: 'Ubuntu 22.04 Base'
-    }
-  }
-  return clusterStore.metadata.available_images || {}
+  return createImages.value.reduce<Record<string, string>>((acc, item) => {
+    acc[item.key] = item.label
+    return acc
+  }, {})
 })
 
 // Watch for node selection to load metadata
 watch(() => createForm.nodeId, async (nodeId) => {
+  createForm.image = ''
+  createImages.value = []
+
   if (nodeId) {
+    createImagesLoading.value = true
     try {
-      await clusterStore.fetchMetadata(nodeId)
-      // Set default image if available
-      const images = clusterStore.metadata?.available_images
-      if (images && Object.keys(images).length > 0) {
-        createForm.image = Object.keys(images)[0]
+      const [metadata, images] = await Promise.all([
+        clusterStore.fetchMetadata(nodeId),
+        clusterStore.fetchNodeImages(nodeId)
+      ])
+
+      createImages.value = images
+
+      if (images.length > 0) {
+        createForm.image = images[0].key
       }
+
       const memoryOptions = availableMemoryOptions.value
       if (memoryOptions.length > 0 && !memoryOptions.includes(createForm.memoryGb)) {
         createForm.memoryGb = memoryOptions[0]
       }
+
+      if (!metadata?.available_images) {
+        console.warn('metadata missing available_images field')
+      }
     } catch (e) {
+      createImages.value = []
       console.error('Failed to fetch metadata:', e)
+    } finally {
+      createImagesLoading.value = false
     }
   }
 })
@@ -545,6 +571,9 @@ watch(rebuildMemoryOptions, (options) => {
 watch(() => modals.create, (visible) => {
   if (!visible) {
     createStep.value = 1
+    createForm.image = ''
+    createImages.value = []
+    createImagesLoading.value = false
   }
 })
 
@@ -567,6 +596,7 @@ function openCreateModal() {
     return
   }
   createStep.value = 1
+  createForm.image = ''
   createForm.nodeId = availableNodes.value[0]?.node_id || ''
   modals.create = true
 }

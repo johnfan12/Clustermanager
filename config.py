@@ -139,7 +139,7 @@ PROXY_ALLOWED_PATH_PREFIXES: tuple[str, ...] = tuple(
     _parse_csv(
         os.environ.get(
             "PROXY_ALLOWED_PATH_PREFIXES",
-            "/api/instances,/api/quota/me,/api/gpus/status,/api/auth/me,/api/meta,/api/admin",
+            "/api/instances,/api/quota/me,/api/gpus/status,/api/auth/me,/api/meta,/api/images,/api/admin",
         )
     )
 )

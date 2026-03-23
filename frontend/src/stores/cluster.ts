@@ -77,6 +77,12 @@ export interface Metadata {
   node_memory_free_gb?: number
 }
 
+export interface NodeImage {
+  key: string
+  label: string
+  image_ref: string
+}
+
 export interface AuthNode {
   node_id: string
   name: string
@@ -185,6 +191,11 @@ export const useClusterStore = defineStore('cluster', () => {
     const data = await api.get<Metadata>(`/api/proxy/${nodeId}/api/meta`)
     metadata.value = data
     return data
+  }
+
+  async function fetchNodeImages(nodeId: string): Promise<NodeImage[]> {
+    const data = await api.get<{ images: NodeImage[] }>(`/api/proxy/${nodeId}/api/images`)
+    return Array.isArray(data.images) ? data.images : []
   }
 
   // ── Admin Actions ──
@@ -308,6 +319,7 @@ export const useClusterStore = defineStore('cluster', () => {
     fetchAdminInstances,
     forceDeleteInstance,
     fetchQuota,
-    fetchMetadata
+    fetchMetadata,
+    fetchNodeImages
   }
 })
