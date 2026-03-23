@@ -419,7 +419,9 @@ const selectedRebuildNode = computed(() => {
 
 const rebuildGpuOptions = computed(() => {
   const currentGpu = selectedInstance.value?.gpu_indices?.length ?? 0
-  const maxByNode = Math.max(0, (selectedRebuildNode.value?.gpu_free ?? 0) + currentGpu)
+  const nodeTotal = Math.max(0, selectedRebuildNode.value?.gpu_total ?? 0)
+  const maxByFreeAndCurrent = Math.max(0, (selectedRebuildNode.value?.gpu_free ?? 0) + currentGpu)
+  const maxByNode = Math.min(nodeTotal, maxByFreeAndCurrent)
   return [0, 1, 2, 4, 8].filter((count) => count === 0 || count <= maxByNode)
 })
 
