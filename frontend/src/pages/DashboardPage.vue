@@ -222,22 +222,40 @@
         <div class="field">
           <label>GPU 数量</label>
           <select v-model="rebuildForm.numGpus" required>
-            <option :value="0">0 (纯 CPU)</option>
-            <option :value="1">1 张</option>
-            <option :value="2">2 张</option>
-            <option :value="4">4 张</option>
-            <option :value="8">8 张</option>
+            <option
+              v-for="count in rebuildGpuOptions"
+              :key="count"
+              :value="count"
+            >
+              {{ count === 0 ? '0 (纯 CPU)' : `${count} 张` }}
+            </option>
           </select>
         </div>
         <div class="field">
           <label>内存 (GB)</label>
           <select v-model="rebuildForm.memoryGb" required>
-            <option :value="8">8 GB</option>
-            <option :value="16">16 GB</option>
-            <option :value="32">32 GB</option>
-            <option :value="64">64 GB</option>
-            <option :value="128">128 GB</option>
+            <option
+              v-for="size in rebuildMemoryOptions"
+              :key="size"
+              :value="size"
+            >
+              {{ size }} GB
+            </option>
           </select>
+          <div v-if="rebuildMetadata?.max_instance_memory_gb" class="field-hint">
+            单实例内存上限：{{ rebuildMetadata.max_instance_memory_gb }} GB
+          </div>
+          <div
+            v-if="rebuildMetadata?.node_allocatable_memory_gb != null && rebuildMetadata?.node_memory_used_gb != null"
+            class="field-hint"
+          >
+            节点全局可分配内存：{{ rebuildMetadata.node_allocatable_memory_gb }} GB，
+            已分配：{{ rebuildMetadata.node_memory_used_gb }} GB，
+            剩余：{{ rebuildMetadata.node_memory_free_gb ?? 0 }} GB
+          </div>
+          <div v-if="rebuildMemoryOptions.length === 0" class="field-hint warning-text">
+            该节点当前剩余可分配内存不足最小档位（8 GB），请稍后重试或释放资源。
+          </div>
         </div>
         <div class="form-hint warning">
           修改后会先备份数据，再按新配置重建实例。请确保已保存重要数据。
@@ -248,6 +266,7 @@
         <AppButton
           variant="primary"
           :loading="loading.rebuild"
+          :disabled="!canSubmitRebuild"
           @click="handleRebuild"
         >
           保存并重建
@@ -313,7 +332,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { useClusterStore, type Instance, type NodeStatus } from '@/stores/cluster'
+import { useClusterStore, type Instance, type NodeStatus, type Metadata } from '@/stores/cluster'
 import { useToastStore } from '@/stores/toast'
 import LoadingState from '@/components/LoadingState.vue'
 import AppModal from '@/components/AppModal.vue'
@@ -369,6 +388,7 @@ const rebuildForm = reactive({
   numGpus: 1,
   memoryGb: 32
 })
+const rebuildMetadata = ref<Metadata | null>(null)
 
 const deleteConfirmName = ref('')
 const logsContent = ref('')
@@ -391,6 +411,18 @@ const availableGpuOptions = computed(() => {
   return [0, 1, 2, 4, 8].filter((count) => count === 0 || count <= maxFree)
 })
 
+const selectedRebuildNode = computed(() => {
+  const nodeId = selectedInstance.value?.node_id
+  if (!nodeId) return null
+  return clusterStore.nodes.find((n: NodeStatus) => n.node_id === nodeId) || null
+})
+
+const rebuildGpuOptions = computed(() => {
+  const currentGpu = selectedInstance.value?.gpu_indices?.length ?? 0
+  const maxByNode = Math.max(0, (selectedRebuildNode.value?.gpu_free ?? 0) + currentGpu)
+  return [0, 1, 2, 4, 8].filter((count) => count === 0 || count <= maxByNode)
+})
+
 const availableMemoryOptions = computed(() => {
   const options = clusterStore.metadata?.memory_options_gb
   const nodeFreeMemory = clusterStore.metadata?.node_memory_free_gb
@@ -409,6 +441,28 @@ const availableMemoryOptions = computed(() => {
   return fallback
 })
 
+const rebuildMemoryOptions = computed(() => {
+  const options = rebuildMetadata.value?.memory_options_gb
+  const nodeFreeMemory = rebuildMetadata.value?.node_memory_free_gb
+  const currentMemory = selectedInstance.value?.memory_gb ?? 0
+  const effectiveFree = typeof nodeFreeMemory === 'number' ? nodeFreeMemory + currentMemory : undefined
+
+  if (Array.isArray(options) && options.length > 0) {
+    const sorted = [...options].sort((a, b) => a - b)
+    if (typeof effectiveFree === 'number') {
+      return sorted.filter((v) => v <= effectiveFree)
+    }
+    return sorted
+  }
+
+  const maxMemory = rebuildMetadata.value?.max_instance_memory_gb ?? 128
+  const fallback = [8, 16, 32, 64, 128].filter((v) => v <= maxMemory)
+  if (typeof effectiveFree === 'number') {
+    return fallback.filter((v) => v <= effectiveFree)
+  }
+  return fallback
+})
+
 const canProceedCreateStep1 = computed(() => {
   return Boolean(createForm.nodeId && createForm.image)
 })
@@ -419,6 +473,14 @@ const canSubmitCreate = computed(() => {
       && createForm.image
       && availableGpuOptions.value.includes(createForm.numGpus)
       && availableMemoryOptions.value.includes(createForm.memoryGb)
+  )
+})
+
+const canSubmitRebuild = computed(() => {
+  return Boolean(
+    selectedInstance.value
+      && rebuildGpuOptions.value.includes(rebuildForm.numGpus)
+      && rebuildMemoryOptions.value.includes(rebuildForm.memoryGb)
   )
 })
 
@@ -466,9 +528,27 @@ watch(availableMemoryOptions, (options) => {
   }
 })
 
+watch(rebuildGpuOptions, (options) => {
+  if (options.length > 0 && !options.includes(rebuildForm.numGpus)) {
+    rebuildForm.numGpus = options[options.length - 1]
+  }
+})
+
+watch(rebuildMemoryOptions, (options) => {
+  if (options.length > 0 && !options.includes(rebuildForm.memoryGb)) {
+    rebuildForm.memoryGb = options[0]
+  }
+})
+
 watch(() => modals.create, (visible) => {
   if (!visible) {
     createStep.value = 1
+  }
+})
+
+watch(() => modals.rebuild, (visible) => {
+  if (!visible) {
+    rebuildMetadata.value = null
   }
 })
 
@@ -520,9 +600,7 @@ function handleInstanceAction(action: string, instance: Instance) {
       modals.renew = true
       break
     case 'rebuild':
-      rebuildForm.numGpus = instance.gpu_indices?.length || 1
-      rebuildForm.memoryGb = instance.memory_gb || 32
-      modals.rebuild = true
+      void openRebuildModal(instance)
       break
     case 'delete':
       deleteConfirmName.value = ''
@@ -532,6 +610,28 @@ function handleInstanceAction(action: string, instance: Instance) {
       openLogs(instance)
       break
   }
+}
+
+async function openRebuildModal(instance: Instance) {
+  selectedInstance.value = instance
+  rebuildForm.numGpus = instance.gpu_indices?.length ?? 0
+  rebuildForm.memoryGb = instance.memory_gb || 32
+
+  try {
+    rebuildMetadata.value = await clusterStore.fetchMetadata(instance.node_id)
+  } catch (e) {
+    rebuildMetadata.value = null
+    console.error('Failed to fetch rebuild metadata:', e)
+  }
+
+  if (!rebuildGpuOptions.value.includes(rebuildForm.numGpus)) {
+    rebuildForm.numGpus = rebuildGpuOptions.value[rebuildGpuOptions.value.length - 1] ?? 0
+  }
+  if (!rebuildMemoryOptions.value.includes(rebuildForm.memoryGb)) {
+    rebuildForm.memoryGb = rebuildMemoryOptions.value[0] ?? 8
+  }
+
+  modals.rebuild = true
 }
 
 async function handleCreate() {
@@ -606,6 +706,10 @@ async function handleRenew() {
 
 async function handleRebuild() {
   if (!selectedInstance.value) return
+  if (!canSubmitRebuild.value) {
+    toast.error('当前节点资源限制下，该配置不可用')
+    return
+  }
 
   loading.rebuild = true
   try {
