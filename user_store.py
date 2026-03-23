@@ -40,13 +40,19 @@ def upsert_cluster_user(username: str, email: str, password: str) -> None:
         db.commit()
 
 
-def get_cluster_user(username: str) -> dict[str, str] | None:
+def get_cluster_user(username: str) -> dict[str, str | float] | None:
     """Return cluster user info by username."""
     with _get_session() as db:
         user = db.get(ClusterUser, username)
     if user is None:
         return None
-    return {"username": str(user.username), "email": str(user.email)}
+    return {
+        "username": str(user.username),
+        "email": str(user.email),
+        "gpu_hours_quota": float(user.gpu_hours_quota or 0.0),
+        "gpu_hours_used": float(user.gpu_hours_used or 0.0),
+        "gpu_hours_frozen": float(user.gpu_hours_frozen or 0.0),
+    }
 
 
 def verify_cluster_user_password(username: str, password: str) -> bool:
