@@ -9,6 +9,7 @@
       <div class="header-right">
         <button class="action-btn primary" @click="openCreateModal">创建实例</button>
         <span class="header-user">用户：{{ authStore.username || '-' }}</span>
+        <span class="header-quota">额度：{{ gpuHoursText }}</span>
         <button class="action-btn" @click="handleLogout">退出</button>
       </div>
     </header>
@@ -24,12 +25,6 @@
           :nodes="clusterStore.nodes"
           :summary="clusterStore.summary"
           :current-node-id="authStore.currentNodeId"
-        />
-
-        <!-- GPU Quota Card -->
-        <GpuQuotaCard
-          :is-admin="authStore.user?.is_admin"
-          @manage-quota="handleManageQuota"
         />
 
         <!-- My Instances Section -->
@@ -353,13 +348,13 @@ import {
   type NodeImage
 } from '@/stores/cluster'
 import { useToastStore } from '@/stores/toast'
+import { api } from '@/shared/utils/api'
 import LoadingState from '@/components/LoadingState.vue'
 import AppModal from '@/components/AppModal.vue'
 import AppButton from '@/components/AppButton.vue'
 import ClusterOverview from '@/features/ClusterOverview.vue'
 import MyInstances from '@/features/MyInstances.vue'
 import AdminPanel from '@/features/AdminPanel.vue'
-import GpuQuotaCard from '@/features/GpuQuotaCard.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -367,6 +362,12 @@ const clusterStore = useClusterStore()
 const toast = useToastStore()
 
 const initialLoading = ref(true)
+const gpuHoursRemaining = ref<number | null>(null)
+
+const gpuHoursText = computed(() => {
+  if (gpuHoursRemaining.value === null) return '加载中...'
+  return `${gpuHoursRemaining.value.toFixed(1)} 卡时`
+})
 
 // Modal states
 const modals = reactive({
@@ -514,6 +515,20 @@ const availableImages = computed(() => {
     return acc
   }, {})
 })
+
+async function refreshGpuHours() {
+  const nodeId = authStore.currentNodeId
+  if (!nodeId) {
+    gpuHoursRemaining.value = null
+    return
+  }
+  try {
+    const data = await api.get<{ gpu_hours_remaining?: number }>(`/api/proxy/${nodeId}/api/quota/me`)
+    gpuHoursRemaining.value = Number(data.gpu_hours_remaining ?? 0)
+  } catch {
+    gpuHoursRemaining.value = null
+  }
+}
 
 // Watch for node selection to load metadata
 watch(() => createForm.nodeId, async (nodeId) => {
@@ -686,6 +701,7 @@ async function handleCreate() {
     toast.success('实例创建成功')
     modals.create = false
     await clusterStore.fetchAll()
+    await refreshGpuHours()
     // Start SSH polling for new instance
     if (result.id) {
       const instanceKey = `${createForm.nodeId}:${result.id}`
@@ -704,6 +720,7 @@ async function handleStop(instance: Instance) {
     await clusterStore.stopInstance(instance.node_id, Number(instance.id))
     toast.success('实例已停止')
     await clusterStore.fetchAll()
+    await refreshGpuHours()
   } catch (e: any) {
     toast.error(e.message || '停止失败')
   }
@@ -714,6 +731,7 @@ async function handleRestart(instance: Instance) {
     await clusterStore.restartInstance(instance.node_id, Number(instance.id))
     toast.success('实例已重启')
     await clusterStore.fetchAll()
+    await refreshGpuHours()
   } catch (e: any) {
     toast.error(e.message || '重启失败')
   }
@@ -759,6 +777,7 @@ async function handleRebuild() {
     toast.success('实例已按新配置重建')
     modals.rebuild = false
     await clusterStore.fetchAll()
+    await refreshGpuHours()
   } catch (e: any) {
     toast.error(e.message || '配置变更失败')
   } finally {
@@ -778,6 +797,7 @@ async function handleDelete() {
     toast.success('实例已删除')
     modals.delete = false
     await clusterStore.fetchAll()
+    await refreshGpuHours()
   } catch (e: any) {
     toast.error(e.message || '删除失败')
   } finally {
@@ -812,6 +832,7 @@ async function refreshLogs() {
 onMounted(async () => {
   try {
     await clusterStore.fetchAll()
+    await refreshGpuHours()
   } catch {
     toast.error('数据加载失败，请重新登录')
     handleLogout()
@@ -830,6 +851,7 @@ function startSshPolling() {
       return
     }
     await clusterStore.fetchAll()
+    await refreshGpuHours()
     // Check if any pending instances now have SSH access
     const readyInstances: string[] = []
     pendingSshInstances.value.forEach((key) => {
@@ -853,12 +875,6 @@ function stopSshPolling() {
     clearInterval(sshPollTimer)
     sshPollTimer = null
   }
-}
-
-function handleManageQuota() {
-  // Placeholder for admin quota management
-  // In future: navigate to admin panel or open quota management modal
-  toast.warning('卡时额度管理功能开发中，请稍候')
 }
 
 onUnmounted(() => {
@@ -912,6 +928,12 @@ onUnmounted(() => {
 .header-user {
   font-weight: var(--font-weight-semibold);
   color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.header-quota {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-muted);
   font-size: var(--font-size-sm);
 }
 
