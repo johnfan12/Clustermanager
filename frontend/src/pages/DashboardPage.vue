@@ -49,75 +49,122 @@
       title="创建实例"
       size="md"
     >
-      <form class="form" @submit.prevent="handleCreate">
-        <div class="field">
-          <label>目标节点</label>
-          <select v-model="createForm.nodeId" required>
-            <option value="" disabled>选择节点</option>
-            <option
-              v-for="node in availableNodes"
-              :key="node.node_id"
-              :value="node.node_id"
+      <form class="form" @submit.prevent="createStep === 1 ? handleCreateNext() : handleCreate()">
+        <div class="wizard-step">
+          步骤 {{ createStep }} / 2
+        </div>
+
+        <template v-if="createStep === 1">
+          <div class="field">
+            <label>目标节点</label>
+            <select v-model="createForm.nodeId" required>
+              <option value="" disabled>选择节点</option>
+              <option
+                v-for="node in availableNodes"
+                :key="node.node_id"
+                :value="node.node_id"
+              >
+                {{ node.name }} (空闲 GPU: {{ node.gpu_free }})
+              </option>
+            </select>
+          </div>
+          <div class="field">
+            <label>镜像</label>
+            <select v-model="createForm.image" required>
+              <option value="" disabled>选择镜像</option>
+              <option
+                v-for="(label, key) in availableImages"
+                :key="key"
+                :value="key"
+              >
+                {{ label }}
+              </option>
+            </select>
+            <div v-if="!createForm.nodeId" class="field-hint">请先选择节点加载可用镜像</div>
+          </div>
+          <div v-if="selectedCreateNode" class="form-hint">
+            当前节点：{{ selectedCreateNode.name }}，空闲 GPU {{ selectedCreateNode.gpu_free }} / 总数 {{ selectedCreateNode.gpu_total }}。
+          </div>
+        </template>
+
+        <template v-else>
+          <div class="field">
+            <label>GPU 数量</label>
+            <select v-model="createForm.numGpus" required>
+              <option
+                v-for="count in availableGpuOptions"
+                :key="count"
+                :value="count"
+              >
+                {{ count === 0 ? '0 (纯 CPU)' : `${count} 张` }}
+              </option>
+            </select>
+          </div>
+          <div class="field">
+            <label>内存 (GB)</label>
+            <select v-model="createForm.memoryGb" required>
+              <option
+                v-for="size in availableMemoryOptions"
+                :key="size"
+                :value="size"
+              >
+                {{ size }} GB
+              </option>
+            </select>
+            <div v-if="clusterStore.metadata?.max_instance_memory_gb" class="field-hint">
+              单实例内存上限：{{ clusterStore.metadata.max_instance_memory_gb }} GB
+            </div>
+            <div
+              v-if="clusterStore.metadata?.node_allocatable_memory_gb != null && clusterStore.metadata?.node_memory_used_gb != null"
+              class="field-hint"
             >
-              {{ node.name }} (空闲 GPU: {{ node.gpu_free }})
-            </option>
-          </select>
-        </div>
-        <div class="field">
-          <label>GPU 数量</label>
-          <select v-model="createForm.numGpus" required>
-            <option :value="0">0 (纯 CPU)</option>
-            <option :value="1">1 张</option>
-            <option :value="2">2 张</option>
-            <option :value="4">4 张</option>
-            <option :value="8">8 张</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>内存 (GB)</label>
-          <select v-model="createForm.memoryGb" required>
-            <option :value="8">8 GB</option>
-            <option :value="16">16 GB</option>
-            <option :value="32">32 GB</option>
-            <option :value="64">64 GB</option>
-            <option :value="128">128 GB</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>镜像</label>
-          <select v-model="createForm.image" required>
-            <option value="" disabled>选择镜像</option>
-            <option
-              v-for="(label, key) in availableImages"
-              :key="key"
-              :value="key"
-            >
-              {{ label }}
-            </option>
-          </select>
-          <div v-if="!createForm.nodeId" class="field-hint">请先选择节点加载可用镜像</div>
-        </div>
-        <div class="field">
-          <label>到期时间</label>
-          <select v-model="createForm.expireHours" required>
-            <option :value="24">1 天</option>
-            <option :value="48">2 天</option>
-            <option :value="72">3 天</option>
-            <option :value="96">4 天</option>
-            <option :value="120">5 天</option>
-            <option :value="144">6 天</option>
-            <option :value="168" selected>7 天</option>
-          </select>
-        </div>
-        <div class="form-hint">
-          到期时间按天选择（1-7天）。实例到期后会自动停止；临近到期可续期。
-        </div>
+              节点全局可分配内存：{{ clusterStore.metadata.node_allocatable_memory_gb }} GB，
+              已分配：{{ clusterStore.metadata.node_memory_used_gb }} GB，
+              剩余：{{ clusterStore.metadata.node_memory_free_gb ?? 0 }} GB
+            </div>
+            <div v-if="availableMemoryOptions.length === 0" class="field-hint warning-text">
+              该节点当前剩余可分配内存不足最小档位（8 GB），请稍后重试或释放资源。
+            </div>
+          </div>
+          <div class="field">
+            <label>到期时间</label>
+            <select v-model="createForm.expireHours" required>
+              <option :value="24">1 天</option>
+              <option :value="48">2 天</option>
+              <option :value="72">3 天</option>
+              <option :value="96">4 天</option>
+              <option :value="120">5 天</option>
+              <option :value="144">6 天</option>
+              <option :value="168">7 天</option>
+            </select>
+          </div>
+          <div class="form-hint">
+            已按节点空闲 GPU 与后端内存配置自动筛选可选项。
+          </div>
+        </template>
       </form>
       <template #footer>
         <AppButton variant="secondary" @click="modals.create = false">取消</AppButton>
         <AppButton
+          v-if="createStep === 1"
+          variant="primary"
+          :disabled="!canProceedCreateStep1"
+          @click="handleCreateNext"
+        >
+          下一步
+        </AppButton>
+        <AppButton
+          v-else
+          variant="secondary"
+          @click="handleCreatePrev"
+        >
+          上一步
+        </AppButton>
+        <AppButton
+          v-if="createStep === 2"
           variant="primary"
           :loading="loading.create"
+          :disabled="!canSubmitCreate"
           @click="handleCreate"
         >
           创建实例
@@ -308,10 +355,12 @@ const selectedInstance = ref<Instance | null>(null)
 const createForm = reactive({
   nodeId: '',
   numGpus: 1,
-  memoryGb: 32,
+  memoryGb: 16,
   image: 'pytorch',
   expireHours: 168
 })
+
+const createStep = ref(1)
 
 const renewForm = reactive({
   days: 1
@@ -331,7 +380,47 @@ let sshPollTimer: ReturnType<typeof setInterval> | null = null
 
 // Computed
 const availableNodes = computed(() => {
-  return clusterStore.nodes.filter((n: NodeStatus) => n.online && n.gpu_free > 0)
+  return clusterStore.nodes.filter((n: NodeStatus) => n.online)
+})
+
+const selectedCreateNode = computed(() => {
+  return clusterStore.nodes.find((n: NodeStatus) => n.node_id === createForm.nodeId) || null
+})
+
+const availableGpuOptions = computed(() => {
+  const maxFree = Math.max(0, selectedCreateNode.value?.gpu_free ?? 0)
+  return [0, 1, 2, 4, 8].filter((count) => count === 0 || count <= maxFree)
+})
+
+const availableMemoryOptions = computed(() => {
+  const options = clusterStore.metadata?.memory_options_gb
+  const nodeFreeMemory = clusterStore.metadata?.node_memory_free_gb
+  if (Array.isArray(options) && options.length > 0) {
+    const sorted = [...options].sort((a, b) => a - b)
+    if (typeof nodeFreeMemory === 'number') {
+      return sorted.filter((v) => v <= nodeFreeMemory)
+    }
+    return sorted
+  }
+  const maxMemory = clusterStore.metadata?.max_instance_memory_gb ?? 128
+  const fallback = [8, 16, 32, 64, 128].filter((v) => v <= maxMemory)
+  if (typeof nodeFreeMemory === 'number') {
+    return fallback.filter((v) => v <= nodeFreeMemory)
+  }
+  return fallback
+})
+
+const canProceedCreateStep1 = computed(() => {
+  return Boolean(createForm.nodeId && createForm.image)
+})
+
+const canSubmitCreate = computed(() => {
+  return Boolean(
+    createForm.nodeId
+      && createForm.image
+      && availableGpuOptions.value.includes(createForm.numGpus)
+      && availableMemoryOptions.value.includes(createForm.memoryGb)
+  )
 })
 
 const availableImages = computed(() => {
@@ -356,9 +445,31 @@ watch(() => createForm.nodeId, async (nodeId) => {
       if (images && Object.keys(images).length > 0) {
         createForm.image = Object.keys(images)[0]
       }
+      const memoryOptions = availableMemoryOptions.value
+      if (memoryOptions.length > 0 && !memoryOptions.includes(createForm.memoryGb)) {
+        createForm.memoryGb = memoryOptions[0]
+      }
     } catch (e) {
       console.error('Failed to fetch metadata:', e)
     }
+  }
+})
+
+watch(availableGpuOptions, (options) => {
+  if (options.length > 0 && !options.includes(createForm.numGpus)) {
+    createForm.numGpus = options[options.length - 1]
+  }
+})
+
+watch(availableMemoryOptions, (options) => {
+  if (options.length > 0 && !options.includes(createForm.memoryGb)) {
+    createForm.memoryGb = options[0]
+  }
+})
+
+watch(() => modals.create, (visible) => {
+  if (!visible) {
+    createStep.value = 1
   }
 })
 
@@ -374,8 +485,25 @@ function openCreateModal() {
     toast.error('当前没有可用的节点')
     return
   }
+  createStep.value = 1
   createForm.nodeId = availableNodes.value[0]?.node_id || ''
   modals.create = true
+}
+
+function handleCreateNext() {
+  if (!canProceedCreateStep1.value) {
+    toast.error('请先选择节点和镜像')
+    return
+  }
+  if (availableMemoryOptions.value.length === 0) {
+    toast.error('该节点当前可分配内存不足，无法创建实例')
+    return
+  }
+  createStep.value = 2
+}
+
+function handleCreatePrev() {
+  createStep.value = 1
 }
 
 function handleInstanceAction(action: string, instance: Instance) {
@@ -408,8 +536,8 @@ function handleInstanceAction(action: string, instance: Instance) {
 }
 
 async function handleCreate() {
-  if (!createForm.nodeId) {
-    toast.error('请选择目标节点')
+  if (!canSubmitCreate.value) {
+    toast.error('请先完成实例参数选择')
     return
   }
 
@@ -684,6 +812,12 @@ onUnmounted(() => {
   gap: 16px;
 }
 
+.wizard-step {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-primary);
+}
+
 .field {
   display: grid;
   gap: 6px;
@@ -715,6 +849,10 @@ onUnmounted(() => {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   margin-top: 2px;
+}
+
+.field-hint.warning-text {
+  color: var(--color-warning);
 }
 
 .form-hint {

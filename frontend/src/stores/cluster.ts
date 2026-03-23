@@ -70,6 +70,11 @@ export interface QuotaInfo {
 export interface Metadata {
   available_images: Record<string, string>
   allow_register: boolean
+  memory_options_gb?: number[]
+  max_instance_memory_gb?: number
+  node_allocatable_memory_gb?: number
+  node_memory_used_gb?: number
+  node_memory_free_gb?: number
 }
 
 export interface AuthNode {
