@@ -516,7 +516,7 @@ watch(() => createForm.nodeId, async (nodeId) => {
   if (nodeId) {
     createImagesLoading.value = true
     try {
-      const [metadata, images] = await Promise.all([
+      const [, images] = await Promise.all([
         clusterStore.fetchMetadata(nodeId),
         clusterStore.fetchNodeImages(nodeId)
       ])
@@ -530,10 +530,6 @@ watch(() => createForm.nodeId, async (nodeId) => {
       const memoryOptions = availableMemoryOptions.value
       if (memoryOptions.length > 0 && !memoryOptions.includes(createForm.memoryGb)) {
         createForm.memoryGb = memoryOptions[0]
-      }
-
-      if (!metadata?.available_images) {
-        console.warn('metadata missing available_images field')
       }
     } catch (e) {
       createImages.value = []

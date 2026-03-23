@@ -68,7 +68,6 @@ export interface QuotaInfo {
 }
 
 export interface Metadata {
-  available_images: Record<string, string>
   allow_register: boolean
   memory_options_gb?: number[]
   max_instance_memory_gb?: number
