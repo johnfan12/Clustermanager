@@ -26,6 +26,12 @@
           :current-node-id="authStore.currentNodeId"
         />
 
+        <!-- GPU Quota Card -->
+        <GpuQuotaCard
+          :is-admin="authStore.user?.is_admin"
+          @manage-quota="handleManageQuota"
+        />
+
         <!-- My Instances Section -->
         <MyInstances
           :instances="clusterStore.instances"
@@ -353,6 +359,7 @@ import AppButton from '@/components/AppButton.vue'
 import ClusterOverview from '@/features/ClusterOverview.vue'
 import MyInstances from '@/features/MyInstances.vue'
 import AdminPanel from '@/features/AdminPanel.vue'
+import GpuQuotaCard from '@/features/GpuQuotaCard.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -846,6 +853,12 @@ function stopSshPolling() {
     clearInterval(sshPollTimer)
     sshPollTimer = null
   }
+}
+
+function handleManageQuota() {
+  // Placeholder for admin quota management
+  // In future: navigate to admin panel or open quota management modal
+  toast.warning('卡时额度管理功能开发中，请稍候')
 }
 
 onUnmounted(() => {
