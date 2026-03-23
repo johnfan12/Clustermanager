@@ -65,10 +65,6 @@
               <div class="ops">
                 <button
                   class="op-btn"
-                  @click="handleAction('logs', inst)"
-                >日志</button>
-                <button
-                  class="op-btn"
                   :disabled="inst.status !== 'running'"
                   @click="handleAction('stop', inst)"
                 >停止</button>
@@ -85,6 +81,10 @@
                   class="op-btn"
                   @click="handleAction('rebuild', inst)"
                 >变更配置</button>
+                <button
+                  class="op-btn"
+                  @click="handleAction('logs', inst)"
+                >日志</button>
                 <button
                   class="op-btn danger"
                   @click="handleAction('delete', inst)"
@@ -247,6 +247,12 @@ tbody tr:last-child td { border-bottom: none; }
 .name-cell {
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
+  min-width: 200px;
+  max-width: 300px;
+  white-space: normal;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
 }
 
 /* Status */
@@ -348,7 +354,8 @@ tbody tr:last-child td { border-bottom: none; }
   display: flex;
   align-items: center;
   gap: 8px;
-  white-space: nowrap;
+  flex-wrap: wrap;
+  white-space: normal;
 }
 
 .op-btn {
