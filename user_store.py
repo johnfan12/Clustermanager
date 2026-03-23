@@ -5,6 +5,7 @@ from __future__ import annotations
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
+import config
 from database import SessionLocal
 from models import ClusterUser
 
@@ -32,6 +33,7 @@ def upsert_cluster_user(username: str, email: str, password: str) -> None:
                     username=username,
                     email=email,
                     password_hash=password_hash,
+                    gpu_hours_quota=config.GPU_HOURS_DEFAULT_QUOTA,
                 )
             )
         else:

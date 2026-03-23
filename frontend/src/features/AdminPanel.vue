@@ -13,57 +13,52 @@
       </div>
     </div>
 
-    <div v-if="!selectedNodeId" class="empty-state">
-      请选择要管理的节点
+    <!-- Users Section -->
+    <div class="admin-section">
+      <h3 class="section-subtitle">用户列表</h3>
+      <div v-if="users.length === 0" class="empty-sub">暂无用户数据</div>
+      <div v-else class="admin-list">
+        <div v-for="user in users" :key="user.username" class="admin-item">
+          <div class="item-header">
+            <strong>{{ user.username }}</strong>
+            <span v-if="user.is_admin" class="admin-badge">管理员</span>
+          </div>
+          <div class="item-meta">{{ user.email }}</div>
+          <div class="item-stats">
+            运行中 GPU {{ user.used_gpu }} ·
+            内存 {{ user.used_memory_gb }}G ·
+            实例 {{ user.used_instances }} ·
+            卡时 {{ formatGpuHours(user.gpu_hours_used) }}/{{ formatGpuHours(user.gpu_hours_quota) }}
+          </div>
+          <div class="item-actions">
+            <button class="action-link" @click="openQuotaModal(user)">修改卡时额度</button>
+          </div>
+        </div>
+      </div>
     </div>
 
-    <template v-else>
-      <!-- Users Section -->
-      <div class="admin-section">
-        <h3 class="section-subtitle">用户列表</h3>
-        <div v-if="users.length === 0" class="empty-sub">暂无用户数据</div>
-        <div v-else class="admin-list">
-          <div v-for="user in users" :key="user.id" class="admin-item">
-            <div class="item-header">
-              <strong>{{ user.username }}</strong>
-              <span v-if="user.is_admin" class="admin-badge">管理员</span>
-            </div>
-            <div class="item-meta">{{ user.email }}</div>
-            <div class="item-stats">
-              GPU {{ user.used_gpu }}/{{ user.quota_gpu }} ·
-              内存 {{ user.used_memory_gb }}G/{{ user.quota_memory_gb }}G ·
-              实例 {{ user.used_instances }}/{{ user.quota_max_instances }} ·
-              卡时 {{ formatGpuHours(user.gpu_hours_used) }}/{{ formatGpuHours(user.gpu_hours_quota) }}
-            </div>
-            <div class="item-actions">
-              <button class="action-link" @click="openQuotaModal(user)">修改配额</button>
-            </div>
+    <!-- Instances Section -->
+    <div class="admin-section">
+      <h3 class="section-subtitle">节点实例</h3>
+      <div v-if="!selectedNodeId" class="empty-sub">请选择要管理的节点以查看实例</div>
+      <div v-else-if="allInstances.length === 0" class="empty-sub">暂无实例数据</div>
+      <div v-else class="admin-list">
+        <div v-for="inst in allInstances" :key="`${inst.node_id}-${String(inst.id)}`" class="admin-item">
+          <div class="item-header">
+            <strong>{{ inst.container_name }}</strong>
+            <span :class="['status-badge', inst.status]">{{ statusText(inst.status) }}</span>
+          </div>
+          <div class="item-meta">
+            {{ inst.username || '-' }} ·
+            GPU {{ inst.gpu_indices?.length || 0 }} 张 ·
+            {{ inst.memory_gb }}G 内存
+          </div>
+          <div class="item-actions">
+            <button class="action-link danger" @click="confirmForceDelete(inst)">强制删除</button>
           </div>
         </div>
       </div>
-
-      <!-- Instances Section -->
-      <div class="admin-section">
-        <h3 class="section-subtitle">全部实例</h3>
-        <div v-if="allInstances.length === 0" class="empty-sub">暂无实例数据</div>
-        <div v-else class="admin-list">
-          <div v-for="inst in allInstances" :key="`${inst.node_id}-${String(inst.id)}`" class="admin-item">
-            <div class="item-header">
-              <strong>{{ inst.container_name }}</strong>
-              <span :class="['status-badge', inst.status]">{{ statusText(inst.status) }}</span>
-            </div>
-            <div class="item-meta">
-              {{ inst.username || '-' }} ·
-              GPU {{ inst.gpu_indices?.length || 0 }} 张 ·
-              {{ inst.memory_gb }}G 内存
-            </div>
-            <div class="item-actions">
-              <button class="action-link danger" @click="confirmForceDelete(inst)">强制删除</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </template>
+    </div>
 
     <!-- Quota Modal -->
     <AppModal v-model:visible="modals.quota" title="修改用户配额" size="sm">
@@ -72,21 +67,10 @@
           修改用户 <strong>{{ selectedUser?.username }}</strong> 的配额
         </div>
         <div class="field">
-          <label>GPU 配额</label>
-          <input v-model.number="quotaForm.gpu" type="number" min="0" required />
-        </div>
-        <div class="field">
-          <label>内存配额 (GB)</label>
-          <input v-model.number="quotaForm.memory" type="number" min="8" required />
-        </div>
-        <div class="field">
-          <label>实例上限</label>
-          <input v-model.number="quotaForm.instances" type="number" min="1" required />
-        </div>
-        <div class="field">
           <label>卡时额度</label>
           <input v-model.number="quotaForm.gpuHours" type="number" min="0" step="0.1" required />
         </div>
+        <div class="form-hint">卡时由聚合端统一结算；节点离线期间不继续计费。</div>
       </form>
       <template #footer>
         <AppButton variant="secondary" @click="modals.quota = false">取消</AppButton>
@@ -113,7 +97,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import { useClusterStore, type NodeStatus, type AdminUser, type AdminInstance } from '@/stores/cluster'
 import { useToastStore } from '@/stores/toast'
 import AppModal from '@/components/AppModal.vue'
@@ -145,9 +129,6 @@ const selectedUser = ref<AdminUser | null>(null)
 const selectedInstance = ref<AdminInstance | null>(null)
 
 const quotaForm = reactive({
-  gpu: 0,
-  memory: 8,
-  instances: 1,
   gpuHours: 100
 })
 
@@ -162,12 +143,14 @@ function statusText(status: string): string {
 }
 
 async function loadAdminData() {
-  if (!selectedNodeId.value || !props.isAdmin) return
+  if (!props.isAdmin) return
 
   try {
     const [usersData, instancesData] = await Promise.all([
-      clusterStore.fetchAdminUsers(selectedNodeId.value),
-      clusterStore.fetchAdminInstances(selectedNodeId.value)
+      clusterStore.fetchAdminUsers(),
+      selectedNodeId.value
+        ? clusterStore.fetchAdminInstances(selectedNodeId.value)
+        : Promise.resolve([])
     ])
     users.value = usersData
     allInstances.value = instancesData
@@ -178,22 +161,16 @@ async function loadAdminData() {
 
 function openQuotaModal(user: AdminUser) {
   selectedUser.value = user
-  quotaForm.gpu = user.quota_gpu
-  quotaForm.memory = user.quota_memory_gb
-  quotaForm.instances = user.quota_max_instances
   quotaForm.gpuHours = user.gpu_hours_quota ?? 100
   modals.quota = true
 }
 
 async function handleUpdateQuota() {
-  if (!selectedNodeId.value || !selectedUser.value) return
+  if (!selectedUser.value) return
 
   loading.quota = true
   try {
-    await clusterStore.updateUserQuota(selectedNodeId.value, selectedUser.value.id, {
-      quota_gpu: quotaForm.gpu,
-      quota_memory_gb: quotaForm.memory,
-      quota_max_instances: quotaForm.instances,
+    await clusterStore.updateUserQuota(selectedUser.value.username, {
       gpu_hours_quota: quotaForm.gpuHours
     })
     toast.success('用户配额已更新')
@@ -227,6 +204,14 @@ async function handleForceDelete() {
     loading.delete = false
   }
 }
+
+watch(selectedNodeId, () => {
+  void loadAdminData()
+})
+
+onMounted(() => {
+  void loadAdminData()
+})
 </script>
 
 <style scoped>

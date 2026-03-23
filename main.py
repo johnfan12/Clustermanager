@@ -4,6 +4,7 @@ GPU 集群跳板机聚合管理服务 — 主入口
 """
 
 import asyncio
+import json
 import logging
 import os
 from urllib.parse import unquote
@@ -13,6 +14,8 @@ import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 import config
 from auth import (
@@ -21,6 +24,18 @@ from auth import (
     get_optional_user,
     router as auth_router,
 )
+from billing import (
+    activate_instance_state,
+    ensure_cluster_user_record,
+    ensure_gpu_hours_available,
+    gpu_hours_remaining,
+    settle_and_deactivate_instance,
+    start_billing_sync,
+    stop_billing_sync,
+    sync_billing_once,
+)
+from database import get_db
+from models import ClusterInstanceState, ClusterUser
 
 # ── 日志配置 ───────────────────────────────────────────────────────────────
 
@@ -104,6 +119,245 @@ def _proxy_timeout_seconds(normalized_path: str) -> float:
     if normalized_path.startswith("/api/instances/") and normalized_path.endswith("/rebuild"):
         return config.PROXY_LONG_REQUEST_TIMEOUT_SECONDS
     return config.PROXY_REQUEST_TIMEOUT_SECONDS
+
+
+class ClusterQuotaUpdateRequest(BaseModel):
+    """Update central GPU-hour quota for one user."""
+
+    gpu_hours_quota: float = Field(ge=0)
+
+
+def _parse_proxy_instance_id(normalized_path: str) -> int | None:
+    for prefix in ("/api/instances/", "/api/admin/instances/"):
+        if not normalized_path.startswith(prefix):
+            continue
+        tail = normalized_path[len(prefix) :]
+        instance_id = tail.split("/", 1)[0]
+        if instance_id.isdigit():
+            return int(instance_id)
+    return None
+
+
+def _aggregate_running_usage(instances: list[dict[str, Any]]) -> dict[str, int]:
+    running_instances = [
+        inst for inst in instances if str(inst.get("status") or "") == "running"
+    ]
+    return {
+        "used_gpu": sum(len(list(inst.get("gpu_indices") or [])) for inst in running_instances),
+        "used_memory_gb": sum(int(inst.get("memory_gb") or 0) for inst in running_instances),
+        "used_instances": len(running_instances),
+    }
+
+
+async def _fetch_admin_instances(
+    client: httpx.AsyncClient, node_id: str, node_cfg: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    headers = {"Authorization": f"Bearer {node_cfg['admin_token']}"}
+    resp = await client.get(
+        f"{node_cfg['api']}/api/admin/instances",
+        headers=headers,
+        timeout=REQUEST_TIMEOUT,
+    )
+    resp.raise_for_status()
+    payload = resp.json()
+    instances: List[Any] = payload if isinstance(payload, list) else payload.get("instances", [])
+    return [inst for inst in instances if isinstance(inst, dict)]
+
+
+async def _fetch_cluster_usage_by_username() -> dict[str, dict[str, int]]:
+    usage_by_username: dict[str, dict[str, int]] = {}
+    async with httpx.AsyncClient() as client:
+        results = await asyncio.gather(
+            *[
+                _fetch_admin_instances(client, node_id, node_cfg)
+                for node_id, node_cfg in config.NODES.items()
+            ],
+            return_exceptions=True,
+        )
+
+    for result in results:
+        if isinstance(result, Exception):
+            continue
+        for instance in result:
+            username = str(instance.get("username") or "")
+            if not username or str(instance.get("status") or "") != "running":
+                continue
+            usage = usage_by_username.setdefault(
+                username,
+                {"used_gpu": 0, "used_memory_gb": 0, "used_instances": 0},
+            )
+            usage["used_gpu"] += len(list(instance.get("gpu_indices") or []))
+            usage["used_memory_gb"] += int(instance.get("memory_gb") or 0)
+            usage["used_instances"] += 1
+    return usage_by_username
+
+
+async def _precheck_central_billing(
+    request: Request,
+    normalized_path: str,
+    username: str,
+    db: Session,
+) -> None:
+    method = request.method.upper()
+    requested_gpu_count = 0
+
+    if method == "POST" and normalized_path == "/api/instances":
+        payload = await request.json()
+        requested_gpu_count = int(payload.get("num_gpus") or 0)
+    elif (
+        method == "POST"
+        and normalized_path.startswith("/api/instances/")
+        and normalized_path.endswith("/restart")
+    ):
+        instance_id = _parse_proxy_instance_id(normalized_path)
+        if instance_id is None:
+            return
+        state = (
+            db.query(ClusterInstanceState)
+            .filter(
+                ClusterInstanceState.node_id == request.path_params["node_id"],
+                ClusterInstanceState.node_instance_id == instance_id,
+                ClusterInstanceState.username == username,
+            )
+            .first()
+        )
+        requested_gpu_count = int(state.gpu_count) if state is not None else 0
+    elif (
+        method == "POST"
+        and normalized_path.startswith("/api/instances/")
+        and normalized_path.endswith("/rebuild")
+    ):
+        payload = await request.json()
+        requested_gpu_count = int(payload.get("num_gpus") or 0)
+
+    if requested_gpu_count > 0:
+        ensure_gpu_hours_available(db, username, requested_gpu_count)
+
+
+def _extract_gpu_count_from_response(
+    response_payload: dict[str, Any], fallback_gpu_count: int = 0
+) -> int:
+    gpu_indices = response_payload.get("gpu_indices")
+    if isinstance(gpu_indices, list):
+        return len(gpu_indices)
+    return max(0, int(fallback_gpu_count))
+
+
+def _handle_central_billing_after_proxy(
+    *,
+    normalized_path: str,
+    method: str,
+    node_id: str,
+    username: str,
+    request_payload: dict[str, Any] | None,
+    response_payload: dict[str, Any] | None,
+    db: Session,
+) -> None:
+    if method == "POST" and normalized_path == "/api/instances" and response_payload:
+        instance_id = response_payload.get("id")
+        if not isinstance(instance_id, int):
+            return
+        activate_instance_state(
+            db,
+            node_id=node_id,
+            node_instance_id=instance_id,
+            username=username,
+            container_name=str(response_payload.get("container_name") or ""),
+            gpu_count=_extract_gpu_count_from_response(
+                response_payload, int((request_payload or {}).get("num_gpus") or 0)
+            ),
+            status=str(response_payload.get("status") or "running"),
+        )
+    elif (
+        method == "POST"
+        and normalized_path.startswith("/api/instances/")
+        and normalized_path.endswith("/restart")
+    ):
+        instance_id = _parse_proxy_instance_id(normalized_path)
+        if instance_id is None:
+            return
+        state = (
+            db.query(ClusterInstanceState)
+            .filter(
+                ClusterInstanceState.node_id == node_id,
+                ClusterInstanceState.node_instance_id == instance_id,
+            )
+            .first()
+        )
+        if state is not None:
+            activate_instance_state(
+                db,
+                node_id=node_id,
+                node_instance_id=instance_id,
+                username=state.username,
+                container_name=state.container_name,
+                gpu_count=state.gpu_count,
+                status="running",
+            )
+    elif (
+        method == "POST"
+        and normalized_path.startswith("/api/instances/")
+        and normalized_path.endswith("/rebuild")
+        and response_payload
+    ):
+        instance_id = _parse_proxy_instance_id(normalized_path)
+        if instance_id is None:
+            return
+        settle_and_deactivate_instance(
+            db,
+            node_id=node_id,
+            node_instance_id=instance_id,
+            reason="rebuild",
+            status="stopped",
+        )
+        activate_instance_state(
+            db,
+            node_id=node_id,
+            node_instance_id=instance_id,
+            username=username,
+            container_name=str(response_payload.get("container_name") or ""),
+            gpu_count=_extract_gpu_count_from_response(
+                response_payload, int((request_payload or {}).get("num_gpus") or 0)
+            ),
+            status=str(response_payload.get("status") or "running"),
+        )
+    elif (
+        method == "POST"
+        and normalized_path.startswith("/api/instances/")
+        and normalized_path.endswith("/stop")
+    ):
+        instance_id = _parse_proxy_instance_id(normalized_path)
+        if instance_id is None:
+            return
+        settle_and_deactivate_instance(
+            db,
+            node_id=node_id,
+            node_instance_id=instance_id,
+            reason="stop",
+            status="stopped",
+        )
+    elif method == "DELETE" and normalized_path.startswith("/api/instances/"):
+        instance_id = _parse_proxy_instance_id(normalized_path)
+        if instance_id is None:
+            return
+        settle_and_deactivate_instance(
+            db,
+            node_id=node_id,
+            node_instance_id=instance_id,
+            reason="delete",
+            delete_state=True,
+        )
+    elif method == "DELETE" and normalized_path.startswith("/api/admin/instances/"):
+        instance_id = _parse_proxy_instance_id(normalized_path)
+        if instance_id is None:
+            return
+        settle_and_deactivate_instance(
+            db,
+            node_id=node_id,
+            node_instance_id=instance_id,
+            reason="admin_delete",
+            delete_state=True,
+        )
 
 
 async def _is_container_owned_by_user(
@@ -369,6 +623,90 @@ async def my_instances(
     return {"instances": all_instances, "total": len(all_instances)}
 
 
+@app.get("/api/quota/me")
+async def my_central_quota(
+    request: Request,
+    username: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Return central GPU-hour quota plus current cross-node usage."""
+    await sync_billing_once()
+    user = ensure_cluster_user_record(db, username)
+    user_token = _extract_bearer_token(request)
+
+    async with httpx.AsyncClient() as client:
+        results = await asyncio.gather(
+            *[
+                _fetch_node_instances(client, node_id, node_cfg, user_token)
+                for node_id, node_cfg in config.NODES.items()
+            ]
+        )
+
+    all_instances: List[Dict[str, Any]] = []
+    for inst_list in results:
+        all_instances.extend(inst_list)
+    usage = _aggregate_running_usage(all_instances)
+
+    return {
+        **usage,
+        "gpu_hours_quota": float(user.gpu_hours_quota or 0.0),
+        "gpu_hours_used": float(user.gpu_hours_used or 0.0),
+        "gpu_hours_frozen": float(user.gpu_hours_frozen or 0.0),
+        "gpu_hours_remaining": gpu_hours_remaining(user),
+    }
+
+
+@app.get("/api/admin/users")
+async def admin_list_cluster_users(
+    user_info: dict[str, Any] = Depends(get_current_user_info),
+    db: Session = Depends(get_db),
+) -> List[Dict[str, Any]]:
+    """Return central billing users and their current cross-node usage."""
+    if not user_info.get("is_admin", False):
+        raise HTTPException(status_code=403, detail="仅管理员可查看用户列表")
+
+    await sync_billing_once()
+    usage_by_username = await _fetch_cluster_usage_by_username()
+    users = db.query(ClusterUser).order_by(ClusterUser.created_at.asc()).all()
+
+    result: List[Dict[str, Any]] = []
+    for user in users:
+        usage = usage_by_username.get(
+            user.username,
+            {"used_gpu": 0, "used_memory_gb": 0, "used_instances": 0},
+        )
+        result.append(
+            {
+                "username": user.username,
+                "email": user.email,
+                "is_admin": user.username == config.ADMIN_USERNAME,
+                **usage,
+                "gpu_hours_quota": float(user.gpu_hours_quota or 0.0),
+                "gpu_hours_used": float(user.gpu_hours_used or 0.0),
+                "gpu_hours_frozen": float(user.gpu_hours_frozen or 0.0),
+                "gpu_hours_remaining": gpu_hours_remaining(user),
+            }
+        )
+    return result
+
+
+@app.put("/api/admin/users/{username}/quota")
+async def admin_update_cluster_user_quota(
+    username: str,
+    payload: ClusterQuotaUpdateRequest,
+    user_info: dict[str, Any] = Depends(get_current_user_info),
+    db: Session = Depends(get_db),
+) -> Dict[str, str]:
+    """Update the central GPU-hour quota for one user."""
+    if not user_info.get("is_admin", False):
+        raise HTTPException(status_code=403, detail="仅管理员可修改用户额度")
+
+    user = ensure_cluster_user_record(db, username)
+    user.gpu_hours_quota = payload.gpu_hours_quota
+    db.commit()
+    return {"message": "Quota updated."}
+
+
 @app.api_route(
     "/api/proxy/{node_id}/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
@@ -378,6 +716,7 @@ async def proxy(
     path: str,
     request: Request,
     user_info: dict[str, Any] = Depends(get_current_user_info),
+    db: Session = Depends(get_db),
 ) -> Response:
     """节点直连代理接口 — 透明转发请求到对应节点。
 
@@ -412,6 +751,20 @@ async def proxy(
     headers = _sanitize_proxy_headers(request, user_token)
 
     body = await request.body()
+    request_payload: dict[str, Any] | None = None
+    if body:
+        try:
+            decoded = json.loads(body.decode("utf-8"))
+            request_payload = decoded if isinstance(decoded, dict) else None
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            request_payload = None
+
+    await _precheck_central_billing(
+        request,
+        normalized_path,
+        str(user_info.get("username") or ""),
+        db,
+    )
 
     try:
         timeout_seconds = _proxy_timeout_seconds(normalized_path)
@@ -424,6 +777,25 @@ async def proxy(
                 params=dict(request.query_params),
                 timeout=timeout_seconds,
             )
+        response_payload: dict[str, Any] | None = None
+        content_type = resp.headers.get("content-type", "")
+        if resp.status_code < 400 and "application/json" in content_type:
+            try:
+                payload = resp.json()
+                response_payload = payload if isinstance(payload, dict) else None
+            except ValueError:
+                response_payload = None
+        if resp.status_code < 400:
+            _handle_central_billing_after_proxy(
+                normalized_path=normalized_path,
+                method=method,
+                node_id=node_id,
+                username=str(user_info.get("username") or ""),
+                request_payload=request_payload,
+                response_payload=response_payload,
+                db=db,
+            )
+            db.commit()
         response_headers = {
             key: value
             for key, value in resp.headers.items()
@@ -435,6 +807,7 @@ async def proxy(
             headers=response_headers,
         )
     except Exception as exc:
+        db.rollback()
         logger.error(
             "代理转发失败 user=%s node=%s path=%s err=%s",
             user_info.get("username", "-"),
@@ -522,6 +895,15 @@ async def startup_event() -> None:
         logger.info("FRP visitor 配置已同步")
     except Exception as exc:
         logger.error("FRP visitor 配置同步失败: %s", exc)
+
+    await sync_billing_once()
+    await start_billing_sync()
+
+
+@app.on_event("shutdown")
+async def shutdown_event() -> None:
+    """Stop background billing sync on shutdown."""
+    await stop_billing_sync()
 
 
 # ── FRP 容器访问管理 ─────────────────────────────────────────────────────────

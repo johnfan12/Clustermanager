@@ -98,6 +98,14 @@ CLUSTER_DATABASE_URL: str = os.environ.get(
 AUTO_PROVISION_ON_NODE_LOGIN: bool = (
     os.environ.get("AUTO_PROVISION_ON_NODE_LOGIN", "true").lower() == "true"
 )
+GPU_HOURS_DEFAULT_QUOTA: float = float(
+    os.environ.get("GPU_HOURS_DEFAULT_QUOTA", "100")
+)
+if GPU_HOURS_DEFAULT_QUOTA < 0:
+    GPU_HOURS_DEFAULT_QUOTA = 0.0
+GPU_HOURS_SYNC_INTERVAL_SECONDS: float = float(
+    os.environ.get("GPU_HOURS_SYNC_INTERVAL_SECONDS", "60")
+)
 
 # ============================================================================
 # 各节点 gpu_manager 的 Web 访问地址（前端"进入管理"按钮跳转）

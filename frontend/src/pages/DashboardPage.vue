@@ -517,13 +517,8 @@ const availableImages = computed(() => {
 })
 
 async function refreshGpuHours() {
-  const nodeId = authStore.currentNodeId
-  if (!nodeId) {
-    gpuHoursRemaining.value = null
-    return
-  }
   try {
-    const data = await api.get<{ gpu_hours_remaining?: number }>(`/api/proxy/${nodeId}/api/quota/me`)
+    const data = await api.get<{ gpu_hours_remaining?: number }>('/api/quota/me')
     gpuHoursRemaining.value = Number(data.gpu_hours_remaining ?? 0)
   } catch {
     gpuHoursRemaining.value = null

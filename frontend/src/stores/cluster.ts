@@ -59,12 +59,16 @@ export interface Instance {
 }
 
 export interface QuotaInfo {
-  quota_gpu: number
-  quota_memory_gb: number
-  quota_max_instances: number
+  quota_gpu?: number
+  quota_memory_gb?: number
+  quota_max_instances?: number
   used_gpu: number
   used_memory_gb: number
   used_instances: number
+  gpu_hours_quota?: number
+  gpu_hours_used?: number
+  gpu_hours_frozen?: number
+  gpu_hours_remaining?: number
 }
 
 export interface Metadata {
@@ -91,13 +95,12 @@ export interface AuthNode {
 }
 
 export interface AdminUser {
-  id: number
   username: string
   email: string
   is_admin: boolean
-  quota_gpu: number
-  quota_memory_gb: number
-  quota_max_instances: number
+  quota_gpu?: number
+  quota_memory_gb?: number
+  quota_max_instances?: number
   gpu_hours_quota: number
   gpu_hours_used: number
   gpu_hours_frozen: number
@@ -184,8 +187,8 @@ export const useClusterStore = defineStore('cluster', () => {
     return data.logs || '暂无日志'
   }
 
-  async function fetchQuota(nodeId: string) {
-    const data = await api.get<QuotaInfo>(`/api/proxy/${nodeId}/api/quota/me`)
+  async function fetchQuota() {
+    const data = await api.get<QuotaInfo>('/api/quota/me')
     quota.value = data
     return data
   }
@@ -203,22 +206,18 @@ export const useClusterStore = defineStore('cluster', () => {
 
   // ── Admin Actions ──
 
-  async function fetchAdminUsers(nodeId: string): Promise<AdminUser[]> {
-    const data = await api.get<AdminUser[]>(`/api/proxy/${nodeId}/api/admin/users`)
+  async function fetchAdminUsers(): Promise<AdminUser[]> {
+    const data = await api.get<AdminUser[]>('/api/admin/users')
     return data || []
   }
 
   async function updateUserQuota(
-    nodeId: string,
-    userId: number,
+    username: string,
     payload: {
-      quota_gpu: number
-      quota_memory_gb: number
-      quota_max_instances: number
-      gpu_hours_quota?: number
+      gpu_hours_quota: number
     }
   ) {
-    await api.put(`/api/proxy/${nodeId}/api/admin/users/${userId}/quota`, payload)
+    await api.put(`/api/admin/users/${encodeURIComponent(username)}/quota`, payload)
   }
 
   async function fetchAdminInstances(nodeId: string): Promise<AdminInstance[]> {
