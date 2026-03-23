@@ -187,6 +187,44 @@ class FrpVisitorManager:
                 )
         return ports
 
+    def _remove_legacy_visitors(self, container_names: set[str]) -> bool:
+        """Remove stale visitor sections from legacy FRP config file."""
+        if not container_names:
+            return True
+
+        legacy_file = Path(FRP_CONFIG_FILE)
+        if not legacy_file.exists():
+            return True
+
+        try:
+            config = configparser.ConfigParser()
+            config.read(legacy_file)
+            removed = False
+
+            for section in list(config.sections()):
+                if not section.startswith("visitor-"):
+                    continue
+                name = section.removeprefix("visitor-")
+                if name in container_names:
+                    config.remove_section(section)
+                    removed = True
+
+            if not removed:
+                return True
+
+            if not config.sections():
+                legacy_file.unlink(missing_ok=True)
+                return True
+
+            tmp_file = legacy_file.with_suffix(".tmp")
+            with tmp_file.open("w") as fh:
+                config.write(fh)
+            tmp_file.replace(legacy_file)
+            return True
+        except Exception as exc:
+            LOGGER.warning("Failed to cleanup legacy visitor config %s: %s", legacy_file, exc)
+            return False
+
     def allocate_port(
         self, container_name: str, preferred_port: int | None = None
     ) -> int:
@@ -378,6 +416,9 @@ class FrpVisitorManager:
                 LOGGER.warning(
                     "Failed to delete stale visitor config %s: %s", cfg_path, exc
                 )
+
+        if stale_names:
+            success = self._remove_legacy_visitors(set(stale_names)) and success
 
         self._sync_vps_access_to_nodes(containers)
         return success
