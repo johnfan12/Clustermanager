@@ -5,7 +5,7 @@
 /** 格式化 ISO8601 过期时间为可读字符串 */
 export function formatExpire(value?: string | null): string {
   if (!value) return '不限'
-  const date = new Date(value)
+  const date = parseServerDate(value)
   if (isNaN(date.getTime())) return String(value)
   const yyyy = date.getFullYear()
   const mm = String(date.getMonth() + 1).padStart(2, '0')
@@ -19,7 +19,7 @@ export function formatExpire(value?: string | null): string {
 export function expireCountdown(value?: string | null): string {
   if (!value) return ''
   const now = Date.now()
-  const target = new Date(value).getTime()
+  const target = parseServerDate(value).getTime()
   if (isNaN(target)) return ''
   const diff = target - now
   if (diff <= 0) return '已过期'
@@ -35,4 +35,13 @@ export function escHtml(value: unknown): string {
   const div = document.createElement('div')
   div.appendChild(document.createTextNode(String(value ?? '')))
   return div.innerHTML
+}
+
+/**
+ * 后端当前返回的 datetime 可能是不带时区的 UTC 字符串。
+ * 若缺失时区后缀，则按 UTC 解释，避免浏览器按本地时区误解析。
+ */
+function parseServerDate(value: string): Date {
+  const hasTimezone = /[zZ]|[+-]\d{2}:?\d{2}$/.test(value)
+  return new Date(hasTimezone ? value : `${value}Z`)
 }
