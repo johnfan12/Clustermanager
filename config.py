@@ -7,6 +7,7 @@
 import json
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -39,6 +40,23 @@ def _load_node_web_urls_from_env() -> dict:
         except json.JSONDecodeError:
             pass
     return {}
+
+
+def _extract_ports_from_nodes(nodes: dict) -> tuple[int, ...]:
+    """从 NODES.api 中提取 FRP 需要放行的远端 API 端口."""
+    ports: set[int] = set()
+    for node in nodes.values():
+        api = str(node.get("api") or "").strip()
+        if not api:
+            continue
+        target = api if "://" in api else f"http://{api}"
+        try:
+            parsed = urlparse(target)
+        except ValueError:
+            continue
+        if parsed.port:
+            ports.add(parsed.port)
+    return tuple(sorted(ports))
 
 
 # ============================================================================
@@ -126,10 +144,17 @@ FRP_SERVER_ADDR: str = os.environ.get("FRP_SERVER_ADDR", "localhost")
 FRP_SERVER_PORT: int = int(os.environ.get("FRP_SERVER_PORT", "7000"))
 FRP_TOKEN: str = os.environ.get("FRP_TOKEN", "your-frp-secret-token")
 FRP_CONFIG_DIR: str = os.environ.get("FRP_CONFIG_DIR", "/etc/frp")
+FRP_SERVER_CONFIG_FILE: str = os.environ.get(
+    "FRP_SERVER_CONFIG_FILE", f"{FRP_CONFIG_DIR}/frps.ini"
+)
 FRP_CONFIG_FILE: str = f"{FRP_CONFIG_DIR}/frpc-visitors.ini"
 FRP_VISITOR_CONFIG_DIR: str = os.environ.get(
     "FRP_VISITOR_CONFIG_DIR", f"{FRP_CONFIG_DIR}/visitors"
 )
+FRP_API_ALLOW_PORTS: tuple[str, ...] = tuple(
+    _parse_csv(os.environ.get("FRP_API_ALLOW_PORTS", ""))
+)
+FRP_NODE_API_PORTS: tuple[int, ...] = _extract_ports_from_nodes(NODES)
 
 # 容器访问端口范围（在 VPS 上暴露）
 _frp_port_range = os.environ.get("FRP_CONTAINER_PORT_RANGE", "30000-39999").split("-")

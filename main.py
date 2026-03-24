@@ -905,6 +905,7 @@ async def startup_event() -> None:
     try:
         from frp_manager import frp_visitor_manager
 
+        frp_visitor_manager.sync_frps_config()
         frp_visitor_manager.update_config()
         logger.info("FRP visitor 配置已同步")
     except Exception as exc:

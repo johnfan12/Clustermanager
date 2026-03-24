@@ -6,6 +6,7 @@ import configparser
 import hashlib
 import logging
 import socket
+import io
 import subprocess
 import time
 from pathlib import Path
@@ -14,10 +15,13 @@ from typing import Any
 import httpx
 
 from config import (
+    FRP_API_ALLOW_PORTS,
     FRP_CONFIG_FILE,
     FRP_CONTAINER_PORT_RANGE,
     FRP_ENABLED,
+    FRP_NODE_API_PORTS,
     FRP_SERVER_ADDR,
+    FRP_SERVER_CONFIG_FILE,
     FRP_SERVER_PORT,
     FRP_TOKEN,
     FRP_VISITOR_CONFIG_DIR,
@@ -27,6 +31,7 @@ from config import (
 )
 
 LOGGER = logging.getLogger(__name__)
+FRPS_TEMPLATE_PATH = Path(__file__).resolve().parent / "frp" / "frps.ini"
 
 
 class FrpVisitorManager:
@@ -70,6 +75,9 @@ class FrpVisitorManager:
 
     def _instance_service_name(self, container_name: str) -> str:
         return f"frpc-visitor@{container_name}.service"
+
+    def _frps_config_path(self) -> Path:
+        return Path(FRP_SERVER_CONFIG_FILE)
 
     def _run_systemctl(self, action: str, service_name: str, timeout: int = 10) -> bool:
         commands = [
@@ -272,6 +280,64 @@ class FrpVisitorManager:
             "",
         ]
         return "\n".join(lines)
+
+    def _build_allow_ports_value(self) -> str:
+        entries: list[str] = [str(port) for port in FRP_NODE_API_PORTS]
+        entries.extend(FRP_API_ALLOW_PORTS)
+        entries.append(f"{FRP_CONTAINER_PORT_RANGE[0]}-{FRP_CONTAINER_PORT_RANGE[1]}")
+
+        deduped: list[str] = []
+        for entry in entries:
+            normalized = entry.strip()
+            if not normalized or normalized in deduped:
+                continue
+            deduped.append(normalized)
+        return ",".join(deduped)
+
+    def sync_frps_config(self) -> bool:
+        """Keep frps.ini aligned with the app .env token/port settings."""
+        if not self.enabled:
+            LOGGER.info("FRP server is disabled; skip frps config sync")
+            return True
+
+        config_path = self._frps_config_path()
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+
+        config = configparser.ConfigParser()
+        if config_path.exists():
+            config.read(config_path)
+        elif FRPS_TEMPLATE_PATH.exists():
+            config.read(FRPS_TEMPLATE_PATH)
+
+        if "common" not in config:
+            config["common"] = {}
+
+        config["common"]["bind_port"] = str(FRP_SERVER_PORT)
+        config["common"]["token"] = FRP_TOKEN
+        config["common"]["allow_ports"] = self._build_allow_ports_value()
+
+        buffer = io.StringIO()
+        config.write(buffer)
+        rendered = buffer.getvalue()
+        existing = config_path.read_text() if config_path.exists() else ""
+        if existing == rendered:
+            LOGGER.info("frps config already up to date: %s", config_path)
+            return True
+
+        tmp_file = config_path.with_suffix(".tmp")
+        tmp_file.write_text(rendered)
+        tmp_file.replace(config_path)
+        LOGGER.info("Synced frps config from environment: %s", config_path)
+
+        service_name = "frps.service"
+        if self._is_service_active(service_name):
+            if not self._run_systemctl("restart", service_name):
+                LOGGER.warning(
+                    "frps config changed, but failed to restart %s",
+                    service_name,
+                )
+                return False
+        return True
 
     def _write_instance_config(
         self,
