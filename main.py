@@ -29,6 +29,7 @@ from billing import (
     ensure_cluster_user_record,
     ensure_gpu_hours_available,
     gpu_hours_remaining,
+    request_with_node_admin_auth,
     settle_and_deactivate_instance,
     start_billing_sync,
     stop_billing_sync,
@@ -152,13 +153,14 @@ def _aggregate_running_usage(instances: list[dict[str, Any]]) -> dict[str, int]:
 async def _fetch_admin_instances(
     client: httpx.AsyncClient, node_id: str, node_cfg: Dict[str, Any]
 ) -> List[Dict[str, Any]]:
-    headers = {"Authorization": f"Bearer {node_cfg['admin_token']}"}
-    resp = await client.get(
-        f"{node_cfg['api']}/api/admin/instances",
-        headers=headers,
+    resp = await request_with_node_admin_auth(
+        client,
+        node_id,
+        node_cfg,
+        "GET",
+        "/api/admin/instances",
         timeout=REQUEST_TIMEOUT,
     )
-    resp.raise_for_status()
     payload = resp.json()
     instances: List[Any] = payload if isinstance(payload, list) else payload.get("instances", [])
     return [inst for inst in instances if isinstance(inst, dict)]
@@ -432,27 +434,39 @@ async def _fetch_node_status(
 
     try:
         if is_admin:
-            status_headers = {"Authorization": f"Bearer {node_cfg['admin_token']}"}
-            instances_path = "/api/admin/instances"
+            gpu_resp, inst_resp = await asyncio.gather(
+                request_with_node_admin_auth(
+                    client,
+                    node_id,
+                    node_cfg,
+                    "GET",
+                    "/api/gpus/status",
+                    timeout=REQUEST_TIMEOUT,
+                ),
+                request_with_node_admin_auth(
+                    client,
+                    node_id,
+                    node_cfg,
+                    "GET",
+                    "/api/admin/instances",
+                    timeout=REQUEST_TIMEOUT,
+                ),
+            )
         else:
             status_headers = {"Authorization": f"Bearer {user_token}"}
-            instances_path = "/api/instances"
-
-        # 并发请求 GPU 状态 和 实例列表
-        gpu_resp, inst_resp = await asyncio.gather(
-            client.get(
-                f"{node_cfg['api']}/api/gpus/status",
-                headers=status_headers,
-                timeout=REQUEST_TIMEOUT,
-            ),
-            client.get(
-                f"{node_cfg['api']}{instances_path}",
-                headers=status_headers,
-                timeout=REQUEST_TIMEOUT,
-            ),
-        )
-
-        inst_resp.raise_for_status()
+            gpu_resp, inst_resp = await asyncio.gather(
+                client.get(
+                    f"{node_cfg['api']}/api/gpus/status",
+                    headers=status_headers,
+                    timeout=REQUEST_TIMEOUT,
+                ),
+                client.get(
+                    f"{node_cfg['api']}/api/instances",
+                    headers=status_headers,
+                    timeout=REQUEST_TIMEOUT,
+                ),
+            )
+            inst_resp.raise_for_status()
 
         gpu_data: Any = []
         if gpu_resp.status_code < 400:
@@ -1006,22 +1020,23 @@ async def get_instance_connect_info(
     user_is_admin = bool(user_info.get("is_admin", False))
 
     try:
-        headers = {
-            "Authorization": (
-                f"Bearer {node['admin_token']}"
-                if user_is_admin
-                else f"Bearer {user_token}"
-            )
-        }
-        list_path = "/api/admin/instances" if user_is_admin else "/api/instances"
         async with httpx.AsyncClient() as client:
-            # 获取实例列表
-            resp = await client.get(
-                f"{node['api']}{list_path}",
-                headers=headers,
-                timeout=5.0,
-            )
-            resp.raise_for_status()
+            if user_is_admin:
+                resp = await request_with_node_admin_auth(
+                    client,
+                    node_id,
+                    node,
+                    "GET",
+                    "/api/admin/instances",
+                    timeout=5.0,
+                )
+            else:
+                resp = await client.get(
+                    f"{node['api']}/api/instances",
+                    headers={"Authorization": f"Bearer {user_token}"},
+                    timeout=5.0,
+                )
+                resp.raise_for_status()
             payload = resp.json()
             instances: List[Any] = (
                 payload if isinstance(payload, list) else payload.get("instances", [])

@@ -19,6 +19,7 @@ LOGGER = logging.getLogger("cluster_manager.billing")
 
 _billing_task: asyncio.Task[None] | None = None
 _billing_lock = asyncio.Lock()
+_node_admin_tokens: dict[str, str] = {}
 
 
 def ensure_cluster_user_record(
@@ -177,14 +178,14 @@ def settle_and_deactivate_instance(
 async def _fetch_node_admin_instances(
     client: httpx.AsyncClient, node_id: str, node_cfg: dict[str, Any]
 ) -> tuple[str, bool, list[dict[str, Any]]]:
-    headers = {"Authorization": f"Bearer {node_cfg['admin_token']}"}
     try:
-        response = await client.get(
-            f"{node_cfg['api']}/api/admin/instances",
-            headers=headers,
-            timeout=config.PROXY_REQUEST_TIMEOUT_SECONDS,
+        response = await request_with_node_admin_auth(
+            client,
+            node_id,
+            node_cfg,
+            "GET",
+            "/api/admin/instances",
         )
-        response.raise_for_status()
         payload = response.json()
         instances = payload if isinstance(payload, list) else payload.get("instances", [])
         if not isinstance(instances, list):
@@ -333,3 +334,72 @@ async def stop_billing_sync() -> None:
     except asyncio.CancelledError:
         pass
     _billing_task = None
+
+
+async def _login_node_admin(
+    client: httpx.AsyncClient, node_id: str, node_cfg: dict[str, Any]
+) -> str:
+    response = await client.post(
+        f"{node_cfg['api']}/api/auth/login",
+        json={
+            "username": config.ADMIN_USERNAME,
+            "password": config.ADMIN_PASSWORD,
+        },
+        timeout=config.PROXY_REQUEST_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    token = payload.get("access_token")
+    if not isinstance(token, str) or not token:
+        raise HTTPException(status_code=502, detail=f"Node {node_id} did not return admin token")
+    _node_admin_tokens[node_id] = token
+    return token
+
+
+async def get_node_admin_token(
+    client: httpx.AsyncClient,
+    node_id: str,
+    node_cfg: dict[str, Any],
+    *,
+    force_refresh: bool = False,
+) -> str:
+    if not force_refresh:
+        cached = _node_admin_tokens.get(node_id)
+        if cached:
+            return cached
+    return await _login_node_admin(client, node_id, node_cfg)
+
+
+async def request_with_node_admin_auth(
+    client: httpx.AsyncClient,
+    node_id: str,
+    node_cfg: dict[str, Any],
+    method: str,
+    path: str,
+    **kwargs: Any,
+) -> httpx.Response:
+    token = await get_node_admin_token(client, node_id, node_cfg)
+    headers = dict(kwargs.pop("headers", {}) or {})
+    headers["Authorization"] = f"Bearer {token}"
+    response = await client.request(
+        method=method,
+        url=f"{node_cfg['api']}{path}",
+        headers=headers,
+        timeout=kwargs.pop("timeout", config.PROXY_REQUEST_TIMEOUT_SECONDS),
+        **kwargs,
+    )
+    if response.status_code != 401:
+        response.raise_for_status()
+        return response
+
+    token = await get_node_admin_token(client, node_id, node_cfg, force_refresh=True)
+    headers["Authorization"] = f"Bearer {token}"
+    response = await client.request(
+        method=method,
+        url=f"{node_cfg['api']}{path}",
+        headers=headers,
+        timeout=kwargs.pop("timeout", config.PROXY_REQUEST_TIMEOUT_SECONDS),
+        **kwargs,
+    )
+    response.raise_for_status()
+    return response
