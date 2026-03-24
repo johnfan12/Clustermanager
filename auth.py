@@ -163,14 +163,16 @@ def _build_token_response(
     user_info = user_payload or {}
     username = str(user_info.get("username") or "")
     is_admin = bool(user_info.get("is_admin", False))
+    cluster_token = create_token(username=username, is_admin=is_admin)
+    del access_token
     return TokenResponse(
-        access_token=access_token,
+        access_token=cluster_token,
         username=username,
         is_admin=is_admin,
         user=user_payload,
         node_id=node_id,
         node_name=str(node_cfg.get("name") or node_id),
-        entry_url=_build_entry_url(node_id, access_token),
+        entry_url=_build_entry_url(node_id, cluster_token),
         message=message,
     )
 
@@ -304,7 +306,7 @@ def get_current_user_info(
         )
     return {
         "username": username,
-        "is_admin": bool(payload.get("is_admin", False)),
+        "is_admin": bool(payload.get("is_admin", username == config.ADMIN_USERNAME)),
     }
 
 
