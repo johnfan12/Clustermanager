@@ -89,6 +89,18 @@
               当前节点未返回可用镜像，请检查该节点 Servermanager 的 IMAGE_* 配置。
             </div>
           </div>
+          <div class="field">
+            <label>实例名</label>
+            <input
+              v-model.trim="createForm.displayName"
+              type="text"
+              maxlength="64"
+              placeholder="可选，留空则自动生成系统名"
+            />
+            <div class="field-hint">
+              推荐填写一个易识别的名字；系统容器名仍会由后端自动生成。
+            </div>
+          </div>
           <div v-if="selectedCreateNode" class="form-hint">
             当前节点：{{ selectedCreateNode.name }}，空闲 GPU {{ selectedCreateNode.gpu_free }} / 总数 {{ selectedCreateNode.gpu_total }}。
           </div>
@@ -187,7 +199,8 @@
     >
       <form class="form" @submit.prevent="handleRenew">
         <div class="form-hint">
-          为实例 <strong>{{ selectedInstance?.container_name }}</strong> 续期
+          为实例 <strong>{{ instanceDisplayName(selectedInstance) }}</strong> 续期
+          <span v-if="showTechnicalName(selectedInstance)">（系统名：{{ selectedInstance?.container_name }}）</span>
         </div>
         <div class="field">
           <label>续期天数</label>
@@ -225,7 +238,8 @@
     >
       <form class="form" @submit.prevent="handleRebuild">
         <div class="form-hint">
-          修改实例 <strong>{{ selectedInstance?.container_name }}</strong> 配置
+          修改实例 <strong>{{ instanceDisplayName(selectedInstance) }}</strong> 配置
+          <span v-if="showTechnicalName(selectedInstance)">（系统名：{{ selectedInstance?.container_name }}）</span>
         </div>
         <div class="field">
           <label>GPU 数量</label>
@@ -294,7 +308,10 @@
         </div>
         <div class="field">
           <label>实例名称</label>
-          <code class="instance-name">{{ selectedInstance?.container_name }}</code>
+          <code class="instance-name">{{ instanceDisplayName(selectedInstance) }}</code>
+          <div v-if="showTechnicalName(selectedInstance)" class="field-hint">
+            系统容器名：{{ selectedInstance?.container_name }}
+          </div>
         </div>
         <div class="field">
           <label>确认输入</label>
@@ -311,7 +328,7 @@
         <AppButton
           variant="danger"
           :loading="loading.delete"
-          :disabled="deleteConfirmName !== selectedInstance?.container_name"
+          :disabled="deleteConfirmName !== instanceDisplayName(selectedInstance)"
           @click="handleDelete"
         >
           确认删除
@@ -322,7 +339,7 @@
     <!-- Logs Modal -->
     <AppModal
       v-model:visible="modals.logs"
-      :title="`日志 - ${selectedInstance?.container_name || ''}`"
+      :title="`日志 - ${instanceDisplayName(selectedInstance)}`"
       size="lg"
     >
       <div class="terminal">
@@ -393,6 +410,7 @@ const selectedInstance = ref<Instance | null>(null)
 // Form data
 const createForm = reactive({
   nodeId: '',
+  displayName: '',
   numGpus: 1,
   memoryGb: 16,
   image: '',
@@ -428,6 +446,14 @@ const availableNodes = computed(() => {
 const selectedCreateNode = computed(() => {
   return clusterStore.nodes.find((n: NodeStatus) => n.node_id === createForm.nodeId) || null
 })
+
+function instanceDisplayName(instance: Instance | null | undefined): string {
+  return String(instance?.display_name || instance?.container_name || '')
+}
+
+function showTechnicalName(instance: Instance | null | undefined): boolean {
+  return Boolean(instance?.display_name && instance.display_name !== instance.container_name)
+}
 
 const availableGpuOptions = computed(() => {
   const maxFree = Math.max(0, selectedCreateNode.value?.gpu_free ?? 0)
@@ -584,6 +610,7 @@ watch(rebuildMemoryOptions, (options) => {
 watch(() => modals.create, (visible) => {
   if (!visible) {
     createStep.value = 1
+    createForm.displayName = ''
     createForm.image = ''
     createImages.value = []
     createImagesLoading.value = false
@@ -609,6 +636,7 @@ function openCreateModal() {
     return
   }
   createStep.value = 1
+  createForm.displayName = ''
   createForm.image = ''
   createForm.nodeId = availableNodes.value[0]?.node_id || ''
   modals.create = true
@@ -688,6 +716,7 @@ async function handleCreate() {
   loading.create = true
   try {
     const result = await clusterStore.createInstance(createForm.nodeId, {
+      display_name: createForm.displayName.trim() || undefined,
       num_gpus: createForm.numGpus,
       memory_gb: createForm.memoryGb,
       image: createForm.image,

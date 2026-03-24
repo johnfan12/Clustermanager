@@ -27,7 +27,12 @@
           </tr>
           <tr v-for="(inst, idx) in instances" :key="inst.container_name + '-' + idx">
             <td>{{ inst.node_name || inst.node_id || '—' }}</td>
-            <td class="name-cell">{{ inst.container_name || '—' }}</td>
+            <td class="name-cell">
+              <div class="instance-label">{{ instanceLabel(inst) }}</div>
+              <div v-if="showTechnicalName(inst)" class="instance-technical">
+                {{ inst.container_name }}
+              </div>
+            </td>
             <td>{{ gpuCount(inst) }}</td>
             <td>{{ inst.memory_gb != null ? inst.memory_gb + 'G' : '—' }}</td>
             <td>{{ inst.image_name || '—' }}</td>
@@ -125,6 +130,14 @@ const runningCount = computed(() =>
 
 function gpuCount(inst: Instance): number {
   return Array.isArray(inst.gpu_indices) ? inst.gpu_indices.length : 0
+}
+
+function instanceLabel(inst: Instance): string {
+  return String(inst.display_name || inst.container_name || '—')
+}
+
+function showTechnicalName(inst: Instance): boolean {
+  return Boolean(inst.display_name && inst.display_name !== inst.container_name)
 }
 
 function sshCommand(inst: Instance): string {
@@ -254,6 +267,17 @@ tbody tr:last-child td { border-bottom: none; }
   word-break: break-all;
   overflow-wrap: anywhere;
   line-height: 1.4;
+}
+
+.instance-label {
+  font-family: var(--font-mono);
+}
+
+.instance-technical {
+  margin-top: 2px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
 }
 
 /* Status */

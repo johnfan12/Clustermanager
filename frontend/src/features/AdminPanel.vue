@@ -42,12 +42,17 @@
       <h3 class="section-subtitle">节点实例</h3>
       <div v-if="!selectedNodeId" class="empty-sub">请选择要管理的节点以查看实例</div>
       <div v-else-if="allInstances.length === 0" class="empty-sub">暂无实例数据</div>
-      <div v-else class="admin-list">
-        <div v-for="inst in allInstances" :key="`${inst.node_id}-${String(inst.id)}`" class="admin-item">
-          <div class="item-header">
-            <strong>{{ inst.container_name }}</strong>
-            <span :class="['status-badge', inst.status]">{{ statusText(inst.status) }}</span>
-          </div>
+        <div v-else class="admin-list">
+          <div v-for="inst in allInstances" :key="`${inst.node_id}-${String(inst.id)}`" class="admin-item">
+            <div class="item-header">
+              <div>
+                <strong>{{ instanceLabel(inst) }}</strong>
+                <div v-if="showTechnicalName(inst)" class="item-meta technical-name">
+                  {{ inst.container_name }}
+                </div>
+              </div>
+              <span :class="['status-badge', inst.status]">{{ statusText(inst.status) }}</span>
+            </div>
           <div class="item-meta">
             {{ inst.username || '-' }} ·
             GPU {{ inst.gpu_indices?.length || 0 }} 张 ·
@@ -83,7 +88,10 @@
     <!-- Delete Modal -->
     <AppModal v-model:visible="modals.delete" title="确认强制删除" size="sm">
       <div class="danger-panel">
-        <p>确认强制删除实例 <strong>{{ selectedInstance?.container_name }}</strong> 吗？</p>
+        <p>确认强制删除实例 <strong>{{ instanceLabel(selectedInstance) }}</strong> 吗？</p>
+        <p v-if="showTechnicalName(selectedInstance)" class="hint">
+          系统容器名：<code>{{ selectedInstance?.container_name }}</code>
+        </p>
         <p class="hint">此操作会立即删除该实例，数据将丢失且无法恢复！</p>
       </div>
       <template #footer>
@@ -140,6 +148,14 @@ function statusText(status: string): string {
   if (status === 'running') return '运行中'
   if (status === 'stopped') return '已停止'
   return '异常'
+}
+
+function instanceLabel(instance: AdminInstance | null): string {
+  return String(instance?.display_name || instance?.container_name || '—')
+}
+
+function showTechnicalName(instance: AdminInstance | null): boolean {
+  return Boolean(instance?.display_name && instance.display_name !== instance.container_name)
 }
 
 async function loadAdminData() {
@@ -333,6 +349,12 @@ onMounted(() => {
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
   margin-bottom: 4px;
+}
+
+.technical-name {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
 }
 
 .item-stats {

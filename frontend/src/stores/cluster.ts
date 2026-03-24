@@ -46,6 +46,7 @@ export interface Instance {
   node_id: string
   node_name: string
   container_name: string
+  display_name?: string
   gpu_indices: number[]
   memory_gb: number
   image_name: string
@@ -145,9 +146,10 @@ export const useClusterStore = defineStore('cluster', () => {
       memory_gb: number
       image: string
       expire_hours: number
+      display_name?: string
     }
   ) {
-    const data = await api.post<{ id: number; container_name: string }>(
+    const data = await api.post<{ id: number; container_name: string; display_name?: string }>(
       `/api/proxy/${nodeId}/api/instances`,
       payload
     )
