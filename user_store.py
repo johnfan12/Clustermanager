@@ -57,6 +57,19 @@ def get_cluster_user(username: str) -> dict[str, str | float] | None:
     }
 
 
+def get_cluster_user_sync_record(username: str) -> dict[str, str] | None:
+    """Return identity fields required to sync a user to one node."""
+    with _get_session() as db:
+        user = db.get(ClusterUser, username)
+    if user is None:
+        return None
+    return {
+        "username": str(user.username),
+        "email": str(user.email),
+        "password_hash": str(user.password_hash),
+    }
+
+
 def verify_cluster_user_password(username: str, password: str) -> bool:
     """Verify central-store password for a user."""
     with _get_session() as db:

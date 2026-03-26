@@ -37,6 +37,7 @@ from billing import (
 )
 from database import get_db
 from models import ClusterInstanceState, ClusterUser
+from user_store import get_cluster_user_sync_record
 
 # ── 日志配置 ───────────────────────────────────────────────────────────────
 
@@ -366,6 +367,7 @@ async def _is_container_owned_by_user(
     client: httpx.AsyncClient,
     container_name: str,
     user_token: str,
+    username: str,
     node_id: Optional[str] = None,
 ) -> bool:
     """Check whether a container belongs to current user across allowed nodes."""
@@ -378,12 +380,18 @@ async def _is_container_owned_by_user(
         else list(config.NODES.items())
     )
     headers = {"Authorization": f"Bearer {user_token}"}
-    for _, node_cfg in node_items:
+    for current_node_id, node_cfg in node_items:
         try:
-            resp = await client.get(
-                f"{node_cfg['api']}/api/instances",
-                headers=headers,
+            resp = await _request_node_as_user(
+                client,
+                node_id=current_node_id,
+                node_cfg=node_cfg,
+                method="GET",
+                path="/api/instances",
+                user_token=user_token,
+                username=username,
                 timeout=REQUEST_TIMEOUT,
+                headers=headers,
             )
             if resp.status_code >= 400:
                 continue
@@ -399,6 +407,86 @@ async def _is_container_owned_by_user(
     return False
 
 
+async def _sync_cluster_user_to_node(
+    client: httpx.AsyncClient,
+    node_id: str,
+    node_cfg: Dict[str, Any],
+    username: str,
+    is_admin: bool,
+) -> bool:
+    """Push one central user record to a node so existing sessions can continue to work."""
+    user_record = get_cluster_user_sync_record(username)
+    if user_record is None:
+        logger.warning("中心用户不存在，跳过自动补建 user=%s node=%s", username, node_id)
+        return False
+
+    try:
+        response = await client.post(
+            f"{node_cfg['api']}/api/internal/users/sync",
+            headers={"X-Internal-Token": config.INTERNAL_SERVICE_TOKEN},
+            json={
+                **user_record,
+                "is_admin": is_admin,
+            },
+            timeout=REQUEST_TIMEOUT,
+        )
+        response.raise_for_status()
+        logger.info("已自动同步中心用户到节点 user=%s node=%s", username, node_id)
+        return True
+    except Exception as exc:
+        logger.warning("自动同步中心用户失败 user=%s node=%s err=%s", username, node_id, exc)
+        return False
+
+
+async def _request_node_as_user(
+    client: httpx.AsyncClient,
+    node_id: str,
+    node_cfg: Dict[str, Any],
+    method: str,
+    path: str,
+    user_token: str,
+    username: str,
+    *,
+    timeout: float,
+    is_admin: bool = False,
+    headers: dict[str, str] | None = None,
+    params: dict[str, Any] | None = None,
+    content: bytes | None = None,
+) -> httpx.Response:
+    """Send a node request as the current user and auto-sync the node account on first 401."""
+    request_headers = dict(headers or {})
+    request_headers["Authorization"] = f"Bearer {user_token}"
+    response = await client.request(
+        method=method,
+        url=f"{node_cfg['api']}{path}",
+        headers=request_headers,
+        params=params,
+        content=content,
+        timeout=timeout,
+    )
+    if response.status_code != 401 or not username:
+        return response
+
+    synced = await _sync_cluster_user_to_node(
+        client,
+        node_id=node_id,
+        node_cfg=node_cfg,
+        username=username,
+        is_admin=is_admin,
+    )
+    if not synced:
+        return response
+
+    return await client.request(
+        method=method,
+        url=f"{node_cfg['api']}{path}",
+        headers=request_headers,
+        params=params,
+        content=content,
+        timeout=timeout,
+    )
+
+
 # ── 辅助函数 ───────────────────────────────────────────────────────────────
 
 
@@ -407,6 +495,7 @@ async def _fetch_node_status(
     node_id: str,
     node_cfg: Dict[str, Any],
     user_token: str,
+    username: str,
     is_admin: bool,
 ) -> Dict[str, Any]:
     """并发获取单个节点的 GPU 状态和实例数据。
@@ -455,15 +544,29 @@ async def _fetch_node_status(
         else:
             status_headers = {"Authorization": f"Bearer {user_token}"}
             gpu_resp, inst_resp = await asyncio.gather(
-                client.get(
-                    f"{node_cfg['api']}/api/gpus/status",
-                    headers=status_headers,
+                _request_node_as_user(
+                    client,
+                    node_id,
+                    node_cfg,
+                    "GET",
+                    "/api/gpus/status",
+                    user_token,
+                    username,
                     timeout=REQUEST_TIMEOUT,
+                    is_admin=is_admin,
+                    headers=status_headers,
                 ),
-                client.get(
-                    f"{node_cfg['api']}/api/instances",
-                    headers=status_headers,
+                _request_node_as_user(
+                    client,
+                    node_id,
+                    node_cfg,
+                    "GET",
+                    "/api/instances",
+                    user_token,
+                    username,
                     timeout=REQUEST_TIMEOUT,
+                    is_admin=is_admin,
+                    headers=status_headers,
                 ),
             )
             inst_resp.raise_for_status()
@@ -515,6 +618,7 @@ async def _fetch_node_instances(
     node_id: str,
     node_cfg: Dict[str, Any],
     user_token: str,
+    username: str,
 ) -> List[Dict[str, Any]]:
     """获取单个节点上当前用户的实例列表。
 
@@ -529,10 +633,16 @@ async def _fetch_node_instances(
     """
     headers = {"Authorization": f"Bearer {user_token}"}
     try:
-        resp = await client.get(
-            f"{node_cfg['api']}/api/instances",
-            headers=headers,
+        resp = await _request_node_as_user(
+            client,
+            node_id,
+            node_cfg,
+            "GET",
+            "/api/instances",
+            user_token,
+            username,
             timeout=REQUEST_TIMEOUT,
+            headers=headers,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -587,7 +697,14 @@ async def cluster_status(
 
     async with httpx.AsyncClient() as client:
         tasks = [
-            _fetch_node_status(client, nid, ncfg, user_token, user_is_admin)
+            _fetch_node_status(
+                client,
+                nid,
+                ncfg,
+                user_token,
+                str(user_info.get("username") or ""),
+                user_is_admin,
+            )
             for nid, ncfg in config.NODES.items()
         ]
         nodes = await asyncio.gather(*tasks)
@@ -625,7 +742,7 @@ async def my_instances(
 
     async with httpx.AsyncClient() as client:
         tasks = [
-            _fetch_node_instances(client, nid, ncfg, user_token)
+            _fetch_node_instances(client, nid, ncfg, user_token, username)
             for nid, ncfg in config.NODES.items()
         ]
         results = await asyncio.gather(*tasks)
@@ -651,7 +768,7 @@ async def my_central_quota(
     async with httpx.AsyncClient() as client:
         results = await asyncio.gather(
             *[
-                _fetch_node_instances(client, node_id, node_cfg, user_token)
+                _fetch_node_instances(client, node_id, node_cfg, user_token, username)
                 for node_id, node_cfg in config.NODES.items()
             ]
         )
@@ -761,7 +878,6 @@ async def proxy(
 
     node_cfg = config.NODES[node_id]
     normalized_path = "/" + path.lstrip("/")
-    target_url = f"{node_cfg['api']}{normalized_path}"
     headers = _sanitize_proxy_headers(request, user_token)
 
     body = await request.body()
@@ -783,13 +899,19 @@ async def proxy(
     try:
         timeout_seconds = _proxy_timeout_seconds(normalized_path)
         async with httpx.AsyncClient() as client:
-            resp = await client.request(
-                method=method,
-                url=target_url,
-                headers=headers,
-                content=body,
-                params=dict(request.query_params),
+            resp = await _request_node_as_user(
+                client,
+                node_id,
+                node_cfg,
+                method,
+                normalized_path,
+                user_token,
+                str(user_info.get("username") or ""),
                 timeout=timeout_seconds,
+                is_admin=bool(user_info.get("is_admin", False)),
+                headers=headers,
+                params=dict(request.query_params),
+                content=body,
             )
         response_payload: dict[str, Any] | None = None
         content_type = resp.headers.get("content-type", "")
@@ -939,7 +1061,10 @@ async def list_frp_containers(
             allowed = []
             for container_name, mapping in mappings.items():
                 if await _is_container_owned_by_user(
-                    client, container_name, user_token
+                    client,
+                    container_name,
+                    user_token,
+                    str(user_info.get("username") or ""),
                 ):
                     allowed.append((container_name, mapping))
             mappings = dict(allowed)
@@ -968,7 +1093,10 @@ async def get_frp_container_access(
         user_token = _extract_bearer_token(request)
         async with httpx.AsyncClient() as client:
             if not await _is_container_owned_by_user(
-                client, container_name, user_token
+                client,
+                container_name,
+                user_token,
+                str(user_info.get("username") or ""),
             ):
                 raise HTTPException(status_code=403, detail="无权访问该实例")
 
@@ -1032,10 +1160,16 @@ async def get_instance_connect_info(
                     timeout=5.0,
                 )
             else:
-                resp = await client.get(
-                    f"{node['api']}/api/instances",
-                    headers={"Authorization": f"Bearer {user_token}"},
+                resp = await _request_node_as_user(
+                    client,
+                    node_id,
+                    node,
+                    "GET",
+                    "/api/instances",
+                    user_token,
+                    str(user_info.get("username") or ""),
                     timeout=5.0,
+                    headers={"Authorization": f"Bearer {user_token}"},
                 )
                 resp.raise_for_status()
             payload = resp.json()
