@@ -17,6 +17,48 @@
 
 适用于首次在新机器部署，按顺序执行：
 
+#### 1. 安装 FRP
+
+执行 FRP 安装脚本：
+
+```bash
+cd frp
+sudo bash install.sh
+cd ..
+```
+
+安装完成后，确认以下服务配置正确：
+- VPS 端 frps 服务已启动并监听配置端口
+- 节点 API 隧道：配合节点侧的 `frpc-api.service`
+- Visitor 隧道：由后端自动维护 per-instance 配置到 `/etc/frp/visitors/*.ini`
+
+#### 2. 安装并初始化 PostgreSQL
+
+安装 PostgreSQL（如未安装）：
+
+```bash
+# Ubuntu/Debian
+sudo apt update
+sudo apt install postgresql postgresql-contrib
+
+# 启动 PostgreSQL 服务
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+```
+
+创建数据库和账号：
+
+```sql
+sudo -u postgres psql
+CREATE USER cluster_user WITH PASSWORD 'cluster_pass';
+CREATE DATABASE cluster_manager OWNER cluster_user;
+\q
+```
+
+#### 3. 配置环境变量
+
+进入项目目录并安装 Python 依赖：
+
 ```bash
 cd Clustermanager
 
@@ -26,8 +68,20 @@ pip install -r requirements.txt
 
 cp .env.copy .env
 mkdir -p logs
+```
 
-# 升级数据库到最新版本
+编辑 `.env`，至少确认以下配置：
+
+```env
+CLUSTER_DATABASE_URL=postgresql+psycopg://cluster_user:cluster_pass@127.0.0.1:5432/cluster_manager
+JWT_SECRET=your-jwt-secret
+INTERNAL_SERVICE_TOKEN=your-internal-token
+FRP_TOKEN=your-frp-token
+```
+
+初始化数据库：
+
+```bash
 alembic current
 alembic upgrade head
 alembic current
@@ -41,51 +95,16 @@ python3 -m alembic -c alembic.ini upgrade head
 python3 -m alembic -c alembic.ini current
 ```
 
-确认 `current` 显示最新 revision 后，再执行 `./start.sh` 启动服务。
-
-### 1. 准备 PostgreSQL
-
-先创建数据库和账号，例如：
-
-```sql
-sudo -u postgres psql
-CREATE USER cluster_user WITH PASSWORD 'cluster_pass';
-CREATE DATABASE cluster_manager OWNER cluster_user;
-```
-
-### 2. 安装依赖并配置环境
+确认 `current` 显示最新 revision 后，启动服务：
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
-cp .env.copy .env
-mkdir -p logs
-```
-
-编辑 `.env`，至少确认：
-
-```env
-CLUSTER_DATABASE_URL=postgresql+psycopg://cluster_user:cluster_pass@127.0.0.1:5432/cluster_manager
-JWT_SECRET=your-jwt-secret
-INTERNAL_SERVICE_TOKEN=your-internal-token
-FRP_TOKEN=your-frp-token
-```
-
-### 3. 安装 FRP 并启动服务
-
-```bash
-
-cd frp
-sudo bash install.sh
-cd ..
-
 chmod +x start.sh
 ./start.sh
 ```
 
 默认地址：`http://127.0.0.1:9999`
+
+`start.sh` 会先执行 `alembic upgrade head`，然后再启动 `uvicorn`。
 
 ## 前端配置
 
