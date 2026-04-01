@@ -74,6 +74,7 @@ mkdir -p logs
 
 ```env
 CLUSTER_DATABASE_URL=postgresql+psycopg://cluster_user:cluster_pass@127.0.0.1:5432/cluster_manager
+GPU_HOURS_DEFAULT_QUOTA=100
 JWT_SECRET=your-jwt-secret
 INTERNAL_SERVICE_TOKEN=your-internal-token
 FRP_TOKEN=your-frp-token
@@ -153,6 +154,7 @@ alembic upgrade head
 - `FRP_TOKEN`：与 frps 一致
 - `FRP_VISITOR_CONFIG_DIR`：默认 `/etc/frp/visitors`
 - `CLUSTER_DATABASE_URL`、`AUTO_PROVISION_ON_NODE_LOGIN`
+- `GPU_HOURS_DEFAULT_QUOTA`：新用户默认卡时额度，由 Clustermanager 统一管理
 - Alembic 配置：`alembic.ini`
 
 ## 常见问题（QA）

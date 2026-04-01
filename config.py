@@ -116,6 +116,7 @@ CLUSTER_DATABASE_URL: str = os.environ.get(
 AUTO_PROVISION_ON_NODE_LOGIN: bool = (
     os.environ.get("AUTO_PROVISION_ON_NODE_LOGIN", "true").lower() == "true"
 )
+# 新用户默认卡时额度由中心侧统一管理。
 GPU_HOURS_DEFAULT_QUOTA: float = float(
     os.environ.get("GPU_HOURS_DEFAULT_QUOTA", "100")
 )
