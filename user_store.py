@@ -34,6 +34,7 @@ def upsert_cluster_user(username: str, email: str, password: str) -> None:
                     email=email,
                     password_hash=password_hash,
                     gpu_hours_quota=config.GPU_HOURS_DEFAULT_QUOTA,
+                    gpu_hours_last_reset_period=config.current_gpu_hours_reset_period(),
                 )
             )
         else:

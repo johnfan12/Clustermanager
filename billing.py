@@ -35,10 +35,73 @@ def ensure_cluster_user_record(
         email=email or f"{username}@local",
         password_hash="",
         gpu_hours_quota=config.GPU_HOURS_DEFAULT_QUOTA,
+        gpu_hours_last_reset_period=config.current_gpu_hours_reset_period(),
     )
     db.add(user)
     db.flush()
     return user
+
+
+def _reset_cluster_gpu_hours_if_needed(db: Session, current_period: str) -> None:
+    """Reset monthly GPU-hour usage once per billing month."""
+    users_to_reset = (
+        db.query(ClusterUser)
+        .filter(ClusterUser.gpu_hours_last_reset_period != current_period)
+        .all()
+    )
+    if not users_to_reset:
+        return
+
+    reset_boundary = config.gpu_hours_period_start_utc(current_period)
+    reset_usernames = {user.username for user in users_to_reset}
+
+    running_states = (
+        db.query(ClusterInstanceState)
+        .filter(
+            ClusterInstanceState.status == "running",
+            ClusterInstanceState.node_online.is_(True),
+            ClusterInstanceState.last_billed_at.isnot(None),
+            ClusterInstanceState.last_billed_at < reset_boundary,
+        )
+        .all()
+    )
+    for state in running_states:
+        settle_instance_state(db, state, reset_boundary, reason="monthly_boundary")
+
+    for user in users_to_reset:
+        previous_used = float(user.gpu_hours_used or 0.0)
+        user.gpu_hours_used = 0.0
+        user.gpu_hours_frozen = 0.0
+        user.gpu_hours_last_reset_period = current_period
+        if previous_used > 0:
+            db.add(
+                ClusterGPUHourLedger(
+                    username=user.username,
+                    delta_gpu_hours=-previous_used,
+                    reason="monthly_reset",
+                    created_at=reset_boundary,
+                )
+            )
+
+    active_states = (
+        db.query(ClusterInstanceState)
+        .filter(
+            ClusterInstanceState.status == "running",
+            ClusterInstanceState.node_online.is_(True),
+        )
+        .all()
+    )
+    for state in active_states:
+        if state.username not in reset_usernames:
+            continue
+        if state.last_billed_at is None or state.last_billed_at < reset_boundary:
+            state.last_billed_at = reset_boundary
+
+    LOGGER.info(
+        "Applied monthly GPU-hour reset for %s users at period=%s",
+        len(users_to_reset),
+        current_period,
+    )
 
 
 def gpu_hours_remaining(user: ClusterUser) -> float:
@@ -288,6 +351,7 @@ async def sync_billing_once() -> None:
         return
 
     async with _billing_lock:
+        current_period = config.current_gpu_hours_reset_period()
         observed_at = datetime.utcnow()
         async with httpx.AsyncClient() as client:
             results = await asyncio.gather(
@@ -299,6 +363,7 @@ async def sync_billing_once() -> None:
 
         with SessionLocal() as db:
             try:
+                _reset_cluster_gpu_hours_if_needed(db, current_period)
                 for node_id, online, instances in results:
                     if online:
                         _apply_online_snapshot(db, node_id, instances, observed_at)

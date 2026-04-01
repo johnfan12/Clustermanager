@@ -6,8 +6,10 @@
 
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dotenv import load_dotenv
 
@@ -122,9 +124,37 @@ GPU_HOURS_DEFAULT_QUOTA: float = float(
 )
 if GPU_HOURS_DEFAULT_QUOTA < 0:
     GPU_HOURS_DEFAULT_QUOTA = 0.0
+GPU_HOURS_RESET_TIMEZONE_NAME: str = os.environ.get(
+    "GPU_HOURS_RESET_TIMEZONE", "Asia/Shanghai"
+)
+try:
+    GPU_HOURS_RESET_TIMEZONE = ZoneInfo(GPU_HOURS_RESET_TIMEZONE_NAME)
+except ZoneInfoNotFoundError:
+    GPU_HOURS_RESET_TIMEZONE_NAME = "UTC"
+    GPU_HOURS_RESET_TIMEZONE = timezone.utc
 GPU_HOURS_SYNC_INTERVAL_SECONDS: float = float(
     os.environ.get("GPU_HOURS_SYNC_INTERVAL_SECONDS", "60")
 )
+
+
+def current_gpu_hours_reset_period(now: datetime | None = None) -> str:
+    """Return the current billing month in the configured reset timezone."""
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    return current.astimezone(GPU_HOURS_RESET_TIMEZONE).strftime("%Y-%m")
+
+
+def gpu_hours_period_start_utc(period: str) -> datetime:
+    """Convert one billing period (YYYY-MM) to its UTC month-start boundary."""
+    year_text, month_text = period.split("-", maxsplit=1)
+    local_start = datetime(
+        int(year_text),
+        int(month_text),
+        1,
+        tzinfo=GPU_HOURS_RESET_TIMEZONE,
+    )
+    return local_start.astimezone(timezone.utc).replace(tzinfo=None)
 
 # ============================================================================
 # 各节点 gpu_manager 的 Web 访问地址（前端"进入管理"按钮跳转）

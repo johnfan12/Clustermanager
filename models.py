@@ -28,6 +28,7 @@ class ClusterUser(Base):
     gpu_hours_quota = Column(Float, nullable=False, default=100.0)
     gpu_hours_used = Column(Float, nullable=False, default=0.0)
     gpu_hours_frozen = Column(Float, nullable=False, default=0.0)
+    gpu_hours_last_reset_period = Column(String(7), nullable=False, default="1970-01")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(
         DateTime,
