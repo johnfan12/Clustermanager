@@ -361,8 +361,11 @@
         <section class="ssh-key-panel">
           <h4>免密登录说明</h4>
           <p>
-            保存公钥后，后续新建或重建的实例会自动写入 <code>/root/.ssh/authorized_keys</code>。
-            已存在实例不会自动更新，如需生效请重建实例。
+            1. 先在你的电脑上执行 <code>ssh-keygen -t rsa</code> 生成密钥对。2. 打开生成的
+            <code>.pub</code> 公钥文件，例如 <code>~/.ssh/id_rsa.pub</code>。3. 将该文件里的
+            <strong>全部内容完整复制</strong> 到下方“公钥”输入框，不要只复制一部分，也不要复制私钥文件。
+            4. 保存后，后续新建或重建的实例会自动写入 <code>/root/.ssh/authorized_keys</code>，
+            之后即可使用本地私钥免密连接。
           </p>
         </section>
 
@@ -1292,7 +1295,7 @@ onUnmounted(() => {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   padding: 16px;
-  background: var(--color-surface-alt);
+  background: var(--color-surface);
 }
 
 .ssh-key-panel h4 {
@@ -1331,8 +1334,9 @@ onUnmounted(() => {
   margin: 8px 0 0;
   padding: 12px;
   border-radius: var(--radius-sm);
-  background: #101826;
-  color: #d7e3ff;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
   white-space: pre-wrap;
@@ -1360,7 +1364,7 @@ onUnmounted(() => {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   padding: 12px;
-  background: var(--color-surface);
+  background: var(--color-surface-alt);
 }
 
 .ssh-key-meta {
