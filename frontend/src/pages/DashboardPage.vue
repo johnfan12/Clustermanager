@@ -283,6 +283,10 @@
         <div class="form-hint warning">
           修改后会先备份数据，再按新配置重建实例。请确保已保存重要数据。
         </div>
+        <div class="form-hint">
+          通过默认 <code>python</code> / <code>pip</code> 安装的 Python 包会保留；
+          <code>apt</code>、Conda 和其他系统层改动不会保留。
+        </div>
       </form>
       <template #footer>
         <AppButton variant="secondary" @click="modals.rebuild = false">取消</AppButton>
