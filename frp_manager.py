@@ -43,6 +43,9 @@ class FrpVisitorManager:
         self.instance_config_dir.mkdir(parents=True, exist_ok=True)
         self._allocated_ports: dict[str, int] = {}
         self._service_cache: dict[str, tuple[bool, float]] = {}
+        self._mappings_cache: dict[str, dict[str, Any]] = {}
+        self._mappings_cache_at: float = 0.0
+        self._mappings_cache_ttl_seconds = 3.0
 
     def fetch_container_secrets(self) -> list[dict[str, Any]]:
         containers = []
@@ -518,6 +521,8 @@ class FrpVisitorManager:
             LOGGER.info("FRP visitor is disabled")
             return True
         try:
+            self._mappings_cache = {}
+            self._mappings_cache_at = 0.0
             containers = self.fetch_container_secrets()
             LOGGER.info(
                 "Reconciling per-container visitor services: %d", len(containers)
@@ -533,7 +538,15 @@ class FrpVisitorManager:
             return None
         return f"ssh://root@{VPS_PUBLIC_IP}:{port}"
 
-    def get_all_mappings(self) -> dict[str, dict[str, Any]]:
+    def get_all_mappings(self, *, force_refresh: bool = False) -> dict[str, dict[str, Any]]:
+        now = time.time()
+        if (
+            not force_refresh
+            and self._mappings_cache
+            and now - self._mappings_cache_at < self._mappings_cache_ttl_seconds
+        ):
+            return dict(self._mappings_cache)
+
         self.update_config()
         containers = self.fetch_container_secrets()
         ports = self._load_existing_visitor_ports()
@@ -554,6 +567,8 @@ class FrpVisitorManager:
                 "vps_port": port,
                 "access_url": f"ssh://root@{VPS_PUBLIC_IP}:{port}",
             }
+        self._mappings_cache = dict(mappings)
+        self._mappings_cache_at = now
         return mappings
 
 
