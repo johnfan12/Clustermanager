@@ -7,11 +7,17 @@ from sqlalchemy import engine_from_config, pool
 
 import config
 from database import Base
-from models import ClusterGPUHourLedger, ClusterInstanceState, ClusterUser
+from models import (
+    ClusterGPUHourLedger,
+    ClusterInstanceState,
+    ClusterUser,
+    ClusterUserSSHKey,
+)
 
 del ClusterGPUHourLedger
 del ClusterInstanceState
 del ClusterUser
+del ClusterUserSSHKey
 
 config_section = context.config
 if config_section.config_file_name is not None:

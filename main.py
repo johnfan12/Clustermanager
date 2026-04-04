@@ -15,6 +15,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import config
@@ -36,7 +37,13 @@ from billing import (
     sync_billing_once,
 )
 from database import get_db
-from models import ClusterInstanceState, ClusterUser
+from models import ClusterInstanceState, ClusterUser, ClusterUserSSHKey
+from ssh_keys import (
+    MAX_SSH_KEYS_PER_USER,
+    compute_ssh_key_fingerprint,
+    normalize_ssh_key_remark,
+    validate_ssh_public_key,
+)
 from user_store import get_cluster_user_sync_record
 
 # ── 日志配置 ───────────────────────────────────────────────────────────────
@@ -129,6 +136,21 @@ class ClusterQuotaUpdateRequest(BaseModel):
     gpu_hours_quota: float = Field(ge=0)
 
 
+class SSHKeyCreateRequest(BaseModel):
+    """Create one cluster-level SSH public key."""
+
+    public_key: str = Field(min_length=1, max_length=8192)
+    remark: str | None = Field(default="", max_length=255)
+
+
+class SSHKeyPayload(BaseModel):
+    """Node sync payload for one SSH public key."""
+
+    public_key: str
+    remark: str = ""
+    fingerprint: str
+
+
 def _parse_proxy_instance_id(normalized_path: str) -> int | None:
     for prefix in ("/api/instances/", "/api/admin/instances/"):
         if not normalized_path.startswith(prefix):
@@ -138,6 +160,28 @@ def _parse_proxy_instance_id(normalized_path: str) -> int | None:
         if instance_id.isdigit():
             return int(instance_id)
     return None
+
+
+def _should_force_user_sync_before_proxy(method: str, normalized_path: str) -> bool:
+    """Return whether current proxy request must refresh node user snapshot first."""
+    if method != "POST":
+        return False
+    if normalized_path == "/api/instances":
+        return True
+    if normalized_path.startswith("/api/instances/") and normalized_path.endswith("/rebuild"):
+        return True
+    return False
+
+
+def _serialize_cluster_ssh_key(key: ClusterUserSSHKey) -> dict[str, Any]:
+    """Serialize one central SSH key row for API responses."""
+    return {
+        "id": int(key.id),
+        "public_key": str(key.public_key),
+        "remark": str(key.remark or ""),
+        "fingerprint": str(key.fingerprint),
+        "created_at": key.created_at.isoformat(),
+    }
 
 
 def _aggregate_running_usage(instances: list[dict[str, Any]]) -> dict[str, int]:
@@ -436,6 +480,24 @@ async def _sync_cluster_user_to_node(
     except Exception as exc:
         logger.warning("自动同步中心用户失败 user=%s node=%s err=%s", username, node_id, exc)
         return False
+
+
+async def _sync_cluster_user_to_all_nodes(
+    username: str,
+    is_admin: bool,
+) -> list[str]:
+    """Best-effort push current cluster user snapshot to every configured node."""
+    failed_nodes: list[str] = []
+    async with httpx.AsyncClient() as client:
+        tasks = [
+            _sync_cluster_user_to_node(client, node_id, node_cfg, username, is_admin)
+            for node_id, node_cfg in config.NODES.items()
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+    for (node_id, _), result in zip(config.NODES.items(), results, strict=False):
+        if isinstance(result, Exception) or result is not True:
+            failed_nodes.append(node_id)
+    return failed_nodes
 
 
 async def _request_node_as_user(
@@ -787,6 +849,115 @@ async def my_central_quota(
     }
 
 
+@app.get("/api/ssh-keys")
+async def list_ssh_keys(
+    username: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, list[dict[str, Any]]]:
+    """List current user's SSH public keys stored in cluster manager."""
+    keys = (
+        db.query(ClusterUserSSHKey)
+        .filter(ClusterUserSSHKey.username == username)
+        .order_by(ClusterUserSSHKey.created_at.asc(), ClusterUserSSHKey.id.asc())
+        .all()
+    )
+    return {"keys": [_serialize_cluster_ssh_key(key) for key in keys]}
+
+
+@app.post("/api/ssh-keys")
+async def create_ssh_key(
+    payload: SSHKeyCreateRequest,
+    user_info: dict[str, Any] = Depends(get_current_user_info),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Store one SSH public key for the current user."""
+    username = str(user_info.get("username") or "")
+    normalized_key = validate_ssh_public_key(payload.public_key)
+    remark = normalize_ssh_key_remark(payload.remark)
+    fingerprint = compute_ssh_key_fingerprint(normalized_key)
+    ensure_cluster_user_record(db, username)
+
+    existing_count = (
+        db.query(ClusterUserSSHKey)
+        .filter(ClusterUserSSHKey.username == username)
+        .count()
+    )
+    if existing_count >= MAX_SSH_KEYS_PER_USER:
+        raise HTTPException(
+            status_code=400,
+            detail=f"每个用户最多只能保存 {MAX_SSH_KEYS_PER_USER} 条 SSH 公钥。",
+        )
+
+    duplicate = (
+        db.query(ClusterUserSSHKey)
+        .filter(
+            ClusterUserSSHKey.username == username,
+            ClusterUserSSHKey.fingerprint == fingerprint,
+        )
+        .first()
+    )
+    if duplicate is not None:
+        raise HTTPException(status_code=400, detail="该 SSH 公钥已存在。")
+
+    key = ClusterUserSSHKey(
+        username=username,
+        public_key=normalized_key,
+        remark=remark,
+        fingerprint=fingerprint,
+    )
+    db.add(key)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="保存 SSH 公钥失败。") from exc
+    db.refresh(key)
+
+    failed_nodes = await _sync_cluster_user_to_all_nodes(
+        username=username,
+        is_admin=bool(user_info.get("is_admin", False)),
+    )
+    if failed_nodes:
+        logger.warning(
+            "SSH 公钥已保存，但同步到部分节点失败 user=%s nodes=%s",
+            username,
+            ",".join(failed_nodes),
+        )
+    return _serialize_cluster_ssh_key(key)
+
+
+@app.delete("/api/ssh-keys/{key_id}")
+async def delete_ssh_key(
+    key_id: int,
+    user_info: dict[str, Any] = Depends(get_current_user_info),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    """Delete one SSH public key for the current user."""
+    username = str(user_info.get("username") or "")
+    key = (
+        db.query(ClusterUserSSHKey)
+        .filter(ClusterUserSSHKey.id == key_id, ClusterUserSSHKey.username == username)
+        .first()
+    )
+    if key is None:
+        raise HTTPException(status_code=404, detail="SSH 公钥不存在。")
+
+    db.delete(key)
+    db.commit()
+
+    failed_nodes = await _sync_cluster_user_to_all_nodes(
+        username=username,
+        is_admin=bool(user_info.get("is_admin", False)),
+    )
+    if failed_nodes:
+        logger.warning(
+            "SSH 公钥已删除，但同步到部分节点失败 user=%s nodes=%s",
+            username,
+            ",".join(failed_nodes),
+        )
+    return {"message": "SSH 公钥已删除。"}
+
+
 @app.get("/api/admin/users")
 async def admin_list_cluster_users(
     user_info: dict[str, Any] = Depends(get_current_user_info),
@@ -899,6 +1070,19 @@ async def proxy(
     try:
         timeout_seconds = _proxy_timeout_seconds(normalized_path)
         async with httpx.AsyncClient() as client:
+            if _should_force_user_sync_before_proxy(method, normalized_path):
+                synced = await _sync_cluster_user_to_node(
+                    client,
+                    node_id,
+                    node_cfg,
+                    str(user_info.get("username") or ""),
+                    bool(user_info.get("is_admin", False)),
+                )
+                if not synced:
+                    raise HTTPException(
+                        status_code=502,
+                        detail="同步用户 SSH 公钥到节点失败，请稍后重试。",
+                    )
             resp = await _request_node_as_user(
                 client,
                 node_id,
@@ -942,6 +1126,9 @@ async def proxy(
             status_code=resp.status_code,
             headers=response_headers,
         )
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as exc:
         db.rollback()
         logger.error(

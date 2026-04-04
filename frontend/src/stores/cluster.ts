@@ -95,6 +95,14 @@ export interface AuthNode {
   allow_register: boolean
 }
 
+export interface SshKeyItem {
+  id: number
+  public_key: string
+  remark: string
+  fingerprint: string
+  created_at: string
+}
+
 export interface AdminUser {
   username: string
   email: string
@@ -204,6 +212,19 @@ export const useClusterStore = defineStore('cluster', () => {
   async function fetchNodeImages(nodeId: string): Promise<NodeImage[]> {
     const data = await api.get<{ images: NodeImage[] }>(`/api/proxy/${nodeId}/api/images`)
     return Array.isArray(data.images) ? data.images : []
+  }
+
+  async function fetchSshKeys(): Promise<SshKeyItem[]> {
+    const data = await api.get<{ keys: SshKeyItem[] }>('/api/ssh-keys')
+    return Array.isArray(data.keys) ? data.keys : []
+  }
+
+  async function createSshKey(payload: { public_key: string; remark?: string }) {
+    return api.post<SshKeyItem>('/api/ssh-keys', payload)
+  }
+
+  async function deleteSshKey(keyId: number) {
+    await api.delete(`/api/ssh-keys/${keyId}`)
   }
 
   // ── Admin Actions ──
@@ -329,6 +350,9 @@ export const useClusterStore = defineStore('cluster', () => {
     forceDeleteInstance,
     fetchQuota,
     fetchMetadata,
-    fetchNodeImages
+    fetchNodeImages,
+    fetchSshKeys,
+    createSshKey,
+    deleteSshKey
   }
 })

@@ -8,6 +8,7 @@
       </div>
       <div class="header-right">
         <button class="action-btn primary" @click="openCreateModal">创建实例</button>
+        <button class="action-btn" @click="openSshKeysModal">SSH 公钥</button>
         <span class="header-user">用户：{{ authStore.username || '-' }}</span>
         <span class="header-quota">额度：{{ gpuHoursText }}</span>
         <button class="action-btn" @click="handleLogout">退出</button>
@@ -350,6 +351,112 @@
         <AppButton variant="primary" @click="refreshLogs">刷新</AppButton>
       </template>
     </AppModal>
+
+    <AppModal
+      v-model:visible="modals.sshKeys"
+      title="SSH 公钥管理"
+      size="lg"
+    >
+      <div class="ssh-key-layout">
+        <section class="ssh-key-panel">
+          <h4>免密登录说明</h4>
+          <p>
+            保存公钥后，后续新建或重建的实例会自动写入 <code>/root/.ssh/authorized_keys</code>。
+            已存在实例不会自动更新，如需生效请重建实例。
+          </p>
+        </section>
+
+        <section class="ssh-key-panel">
+          <h4>生成公钥</h4>
+          <div class="ssh-key-help">
+            <div>
+              <strong>Linux / Mac</strong>
+              <pre class="ssh-key-command">ssh-keygen -t rsa</pre>
+            </div>
+            <div>
+              <strong>Windows PowerShell</strong>
+              <pre class="ssh-key-command">ssh-keygen -t rsa</pre>
+            </div>
+          </div>
+          <p class="ssh-key-help-text">
+            生成后的公钥通常位于 Linux/Mac 的 <code>~/.ssh/id_rsa.pub</code> 或 Windows 的
+            <code>C:\Users\用户名\.ssh\id_rsa.pub</code>。
+          </p>
+        </section>
+
+        <section class="ssh-key-panel">
+          <div class="ssh-key-panel-head">
+            <h4>添加公钥</h4>
+            <span class="ssh-key-count">已配置 {{ sshKeys.length }} / 10 条</span>
+          </div>
+          <form class="form" @submit.prevent="handleCreateSshKey">
+            <div class="field">
+              <label>公钥</label>
+              <textarea
+                v-model.trim="sshKeyForm.publicKey"
+                class="ssh-key-textarea"
+                rows="4"
+                placeholder="请粘贴 ssh-rsa / ssh-ed25519 / ecdsa-sha2-* 公钥"
+              />
+            </div>
+            <div class="field">
+              <label>备注</label>
+              <input
+                v-model.trim="sshKeyForm.remark"
+                type="text"
+                maxlength="255"
+                placeholder="例如：MacBook Pro / 办公网关"
+              />
+            </div>
+            <div class="ssh-key-actions">
+              <AppButton
+                variant="primary"
+                type="submit"
+                :loading="loading.sshKeyCreate"
+                :disabled="!sshKeyForm.publicKey"
+              >
+                保存公钥
+              </AppButton>
+            </div>
+          </form>
+        </section>
+
+        <section class="ssh-key-panel">
+          <div class="ssh-key-panel-head">
+            <h4>当前公钥</h4>
+            <AppButton variant="secondary" size="sm" :loading="loading.sshKeys" @click="loadSshKeys">
+              刷新
+            </AppButton>
+          </div>
+          <div v-if="sshKeys.length === 0" class="ssh-key-empty">
+            还没有配置 SSH 公钥。保存后，新建或重建实例即可使用免密登录。
+          </div>
+          <div v-else class="ssh-key-list">
+            <article v-for="key in sshKeys" :key="key.id" class="ssh-key-card">
+              <div class="ssh-key-meta">
+                <div class="ssh-key-remark">{{ key.remark || '未填写备注' }}</div>
+                <div class="ssh-key-fingerprint">{{ key.fingerprint }}</div>
+                <div class="ssh-key-created">创建于 {{ formatDateTime(key.created_at) }}</div>
+              </div>
+              <pre class="ssh-key-preview">{{ key.public_key }}</pre>
+              <div class="ssh-key-actions">
+                <AppButton
+                  variant="danger"
+                  size="sm"
+                  :loading="loading.sshKeyDeleteId === key.id"
+                  @click="handleDeleteSshKey(key.id)"
+                >
+                  删除
+                </AppButton>
+              </div>
+            </article>
+          </div>
+        </section>
+      </div>
+      <template #footer>
+        <AppButton variant="secondary" @click="modals.sshKeys = false">关闭</AppButton>
+      </template>
+    </AppModal>
   </div>
 </template>
 
@@ -362,7 +469,8 @@ import {
   type Instance,
   type NodeStatus,
   type Metadata,
-  type NodeImage
+  type NodeImage,
+  type SshKeyItem
 } from '@/stores/cluster'
 import { useToastStore } from '@/stores/toast'
 import { api } from '@/shared/utils/api'
@@ -392,7 +500,8 @@ const modals = reactive({
   renew: false,
   rebuild: false,
   delete: false,
-  logs: false
+  logs: false,
+  sshKeys: false
 })
 
 // Loading states
@@ -401,7 +510,10 @@ const loading = reactive({
   renew: false,
   rebuild: false,
   delete: false,
-  logs: false
+  logs: false,
+  sshKeys: false,
+  sshKeyCreate: false,
+  sshKeyDeleteId: null as number | null
 })
 
 // Selected instance for operations
@@ -433,6 +545,11 @@ const rebuildMetadata = ref<Metadata | null>(null)
 
 const deleteConfirmName = ref('')
 const logsContent = ref('')
+const sshKeys = ref<SshKeyItem[]>([])
+const sshKeyForm = reactive({
+  publicKey: '',
+  remark: ''
+})
 
 // SSH polling state
 const pendingSshInstances = ref<Set<string>>(new Set())
@@ -623,11 +740,26 @@ watch(() => modals.rebuild, (visible) => {
   }
 })
 
+watch(() => modals.sshKeys, (visible) => {
+  if (!visible) {
+    sshKeyForm.publicKey = ''
+    sshKeyForm.remark = ''
+    loading.sshKeyDeleteId = null
+  }
+})
+
 // Actions
 function handleLogout() {
   clusterStore.stopAutoRefresh()
   authStore.logout()
   router.push({ name: 'Login' })
+}
+
+function formatDateTime(value?: string | null): string {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN', { hour12: false })
 }
 
 function openCreateModal() {
@@ -640,6 +772,22 @@ function openCreateModal() {
   createForm.image = ''
   createForm.nodeId = availableNodes.value[0]?.node_id || ''
   modals.create = true
+}
+
+async function loadSshKeys() {
+  loading.sshKeys = true
+  try {
+    sshKeys.value = await clusterStore.fetchSshKeys()
+  } catch (e: any) {
+    toast.error(e.message || 'SSH 公钥加载失败')
+  } finally {
+    loading.sshKeys = false
+  }
+}
+
+async function openSshKeysModal() {
+  modals.sshKeys = true
+  await loadSshKeys()
 }
 
 function handleCreateNext() {
@@ -826,6 +974,42 @@ async function handleDelete() {
     toast.error(e.message || '删除失败')
   } finally {
     loading.delete = false
+  }
+}
+
+async function handleCreateSshKey() {
+  if (!sshKeyForm.publicKey.trim()) {
+    toast.error('请先粘贴 SSH 公钥')
+    return
+  }
+
+  loading.sshKeyCreate = true
+  try {
+    await clusterStore.createSshKey({
+      public_key: sshKeyForm.publicKey.trim(),
+      remark: sshKeyForm.remark.trim() || undefined
+    })
+    toast.success('SSH 公钥已保存')
+    sshKeyForm.publicKey = ''
+    sshKeyForm.remark = ''
+    await loadSshKeys()
+  } catch (e: any) {
+    toast.error(e.message || 'SSH 公钥保存失败')
+  } finally {
+    loading.sshKeyCreate = false
+  }
+}
+
+async function handleDeleteSshKey(keyId: number) {
+  loading.sshKeyDeleteId = keyId
+  try {
+    await clusterStore.deleteSshKey(keyId)
+    toast.success('SSH 公钥已删除')
+    await loadSshKeys()
+  } catch (e: any) {
+    toast.error(e.message || 'SSH 公钥删除失败')
+  } finally {
+    loading.sshKeyDeleteId = null
   }
 }
 
@@ -1020,7 +1204,8 @@ onUnmounted(() => {
 }
 
 .field input,
-.field select {
+.field select,
+.field textarea {
   padding: 8px 12px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -1030,7 +1215,8 @@ onUnmounted(() => {
 }
 
 .field input:focus,
-.field select:focus {
+.field select:focus,
+.field textarea:focus {
   outline: none;
   border-color: var(--color-primary);
 }
@@ -1096,6 +1282,110 @@ onUnmounted(() => {
   overflow-y: auto;
 }
 
+/* ── SSH Keys ── */
+.ssh-key-layout {
+  display: grid;
+  gap: 16px;
+}
+
+.ssh-key-panel {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  background: var(--color-surface-alt);
+}
+
+.ssh-key-panel h4 {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+  margin-bottom: 10px;
+}
+
+.ssh-key-panel p {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+}
+
+.ssh-key-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.ssh-key-count {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.ssh-key-help {
+  display: grid;
+  gap: 12px;
+}
+
+.ssh-key-command,
+.ssh-key-preview {
+  margin: 8px 0 0;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: #101826;
+  color: #d7e3ff;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ssh-key-help-text {
+  margin-top: 10px;
+}
+
+.ssh-key-textarea {
+  min-height: 110px;
+  resize: vertical;
+  font-family: var(--font-mono);
+}
+
+.ssh-key-list {
+  display: grid;
+  gap: 12px;
+}
+
+.ssh-key-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  background: var(--color-surface);
+}
+
+.ssh-key-meta {
+  display: grid;
+  gap: 4px;
+}
+
+.ssh-key-remark {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.ssh-key-fingerprint,
+.ssh-key-created,
+.ssh-key-empty {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.ssh-key-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 @media (max-width: 720px) {
   .app-header {
     flex-direction: column;
@@ -1107,6 +1397,13 @@ onUnmounted(() => {
   }
   .dashboard-container {
     padding: 16px;
+  }
+  .ssh-key-panel-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .ssh-key-actions {
+    justify-content: stretch;
   }
 }
 </style>

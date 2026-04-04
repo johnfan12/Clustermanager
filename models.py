@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
@@ -42,6 +43,9 @@ class ClusterUser(Base):
     )
     gpu_hour_ledgers = relationship(
         "ClusterGPUHourLedger", back_populates="user", cascade="all, delete-orphan"
+    )
+    ssh_keys = relationship(
+        "ClusterUserSSHKey", back_populates="user", cascade="all, delete-orphan"
     )
 
 
@@ -99,3 +103,36 @@ class ClusterGPUHourLedger(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     user = relationship("ClusterUser", back_populates="gpu_hour_ledgers")
+
+
+class ClusterUserSSHKey(Base):
+    """Cluster-wide SSH public keys owned by one user."""
+
+    __tablename__ = "cluster_user_ssh_keys"
+    __table_args__ = (
+        UniqueConstraint(
+            "username",
+            "fingerprint",
+            name="uq_cluster_user_ssh_keys_username_fingerprint",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(
+        String(64),
+        ForeignKey("cluster_users.username", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    public_key = Column(Text, nullable=False)
+    remark = Column(String(255), nullable=False, default="")
+    fingerprint = Column(String(255), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    user = relationship("ClusterUser", back_populates="ssh_keys")

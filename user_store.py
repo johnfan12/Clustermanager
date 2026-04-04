@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 import config
 from database import SessionLocal
-from models import ClusterUser
+from models import ClusterUser, ClusterUserSSHKey
 
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
@@ -58,16 +58,30 @@ def get_cluster_user(username: str) -> dict[str, str | float] | None:
     }
 
 
-def get_cluster_user_sync_record(username: str) -> dict[str, str] | None:
+def get_cluster_user_sync_record(username: str) -> dict[str, str | list[dict[str, str]]] | None:
     """Return identity fields required to sync a user to one node."""
     with _get_session() as db:
         user = db.get(ClusterUser, username)
-    if user is None:
-        return None
+        if user is None:
+            return None
+        ssh_keys = (
+            db.query(ClusterUserSSHKey)
+            .filter(ClusterUserSSHKey.username == username)
+            .order_by(ClusterUserSSHKey.created_at.asc(), ClusterUserSSHKey.id.asc())
+            .all()
+        )
     return {
         "username": str(user.username),
         "email": str(user.email),
         "password_hash": str(user.password_hash),
+        "ssh_public_keys": [
+            {
+                "public_key": str(key.public_key),
+                "remark": str(key.remark or ""),
+                "fingerprint": str(key.fingerprint),
+            }
+            for key in ssh_keys
+        ],
     }
 
 
