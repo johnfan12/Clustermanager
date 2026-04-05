@@ -38,7 +38,8 @@
             <td>{{ inst.image_name || '—' }}</td>
             <td>
               <span :class="statusClass(inst.status)">
-                {{ statusText(inst.status) }}
+                <span class="status-dot" aria-hidden="true" />
+                <span>{{ statusText(inst.status) }}</span>
               </span>
             </td>
             <td>
@@ -154,8 +155,8 @@ function statusClass(status: string): string {
 }
 
 function statusText(status: string): string {
-  if (status === 'running') return '运行中'
-  if (status === 'stopped') return '已停止'
+  if (status === 'running') return '运行'
+  if (status === 'stopped') return '停止'
   return '异常'
 }
 
@@ -281,9 +282,35 @@ tbody tr:last-child td { border-bottom: none; }
 }
 
 /* Status */
-.status-running { color: var(--color-success); font-weight: var(--font-weight-medium); }
-.status-stopped { color: var(--color-text-muted); }
-.status-error { color: var(--color-danger); font-weight: var(--font-weight-medium); }
+.status-running,
+.status-stopped,
+.status-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-weight: var(--font-weight-medium);
+}
+
+.status-running {
+  color: var(--color-success);
+}
+
+.status-stopped {
+  color: var(--color-danger);
+}
+
+.status-error {
+  color: var(--color-danger);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  background: currentColor;
+}
 
 /* SSH cell */
 .ssh-cell {
