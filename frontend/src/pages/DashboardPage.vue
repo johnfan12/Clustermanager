@@ -19,6 +19,11 @@
     <div class="dashboard-container">
       <!-- Loading overlay -->
       <LoadingState v-if="initialLoading" text="加载集群数据..." />
+      <LoadingState
+        v-else-if="createTransitionVisible"
+        overlay
+        text="实例创建成功，正在准备 SSH 连接..."
+      />
 
       <template v-else>
         <!-- Cluster Overview Section -->
@@ -281,7 +286,7 @@
           </div>
         </div>
         <div class="form-hint warning">
-          仅修改内存会原地生效；修改 GPU 会先保存当前环境快照，再按新配置重建实例。
+          仅修改内存会原地生效；修改 GPU 会先保存当前环境快照，再按新配置重建实例，完成后默认停机。
         </div>
         <div class="form-hint">
           修改 GPU 时，大多数系统包、npm 包、pip 包和 CLI 状态会跟随快照保留；
@@ -495,6 +500,7 @@ const toast = useToastStore()
 
 const initialLoading = ref(true)
 const gpuHoursRemaining = ref<number | null>(null)
+const createTransitionVisible = ref(false)
 
 const gpuHoursText = computed(() => {
   if (gpuHoursRemaining.value === null) return '加载中...'
@@ -561,6 +567,7 @@ const sshKeyForm = reactive({
 // SSH polling state
 const pendingSshInstances = ref<Set<string>>(new Set())
 let sshPollTimer: ReturnType<typeof setInterval> | null = null
+let createTransitionTimer: ReturnType<typeof setTimeout> | null = null
 
 // Computed
 const availableNodes = computed(() => {
@@ -887,6 +894,7 @@ async function handleCreate() {
       pendingSshInstances.value.add(instanceKey)
       startSshPolling()
     }
+    startCreateTransition()
   } catch (e: any) {
     toast.error(e.message || '实例创建失败')
   } finally {
@@ -1092,9 +1100,27 @@ function stopSshPolling() {
   }
 }
 
+function startCreateTransition(durationMs = 10000) {
+  stopCreateTransition()
+  createTransitionVisible.value = true
+  createTransitionTimer = setTimeout(() => {
+    createTransitionVisible.value = false
+    createTransitionTimer = null
+  }, durationMs)
+}
+
+function stopCreateTransition() {
+  if (createTransitionTimer) {
+    clearTimeout(createTransitionTimer)
+    createTransitionTimer = null
+  }
+  createTransitionVisible.value = false
+}
+
 onUnmounted(() => {
   clusterStore.stopAutoRefresh()
   stopSshPolling()
+  stopCreateTransition()
 })
 </script>
 
