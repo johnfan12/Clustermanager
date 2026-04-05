@@ -5,7 +5,15 @@
         <div :class="['modal-panel', sizeClass]" role="dialog" aria-modal="true">
           <div class="modal-header">
             <h3 class="modal-title">{{ title }}</h3>
-            <button class="modal-close" type="button" @click="onClose" aria-label="关闭">✕</button>
+            <button
+              v-if="showClose"
+              class="modal-close"
+              type="button"
+              @click="onClose"
+              aria-label="关闭"
+            >
+              ✕
+            </button>
           </div>
           <div class="modal-body">
             <slot />
@@ -28,11 +36,13 @@ const props = withDefaults(
     title?: string
     size?: 'sm' | 'md' | 'lg'
     closeOnBackdrop?: boolean
+    showClose?: boolean
   }>(),
   {
     title: '',
     size: 'md',
-    closeOnBackdrop: true
+    closeOnBackdrop: true,
+    showClose: true
   }
 )
 

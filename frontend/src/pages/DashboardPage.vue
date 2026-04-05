@@ -19,12 +19,6 @@
     <div class="dashboard-container">
       <!-- Loading overlay -->
       <LoadingState v-if="initialLoading" text="加载集群数据..." />
-      <LoadingState
-        v-else-if="createTransitionVisible"
-        overlay
-        text="实例创建成功，正在准备 SSH 连接..."
-      />
-
       <template v-else>
         <!-- Cluster Overview Section -->
         <ClusterOverview
@@ -48,6 +42,22 @@
         />
       </template>
     </div>
+
+    <AppModal
+      :visible="createTransitionVisible"
+      title="实例创建中"
+      size="sm"
+      :close-on-backdrop="false"
+      :show-close="false"
+    >
+      <div class="create-transition-window">
+        <div class="create-transition-spinner" aria-hidden="true" />
+        <div class="create-transition-title">实例创建成功</div>
+        <div class="create-transition-text">
+          正在准备 SSH 连接，大约需要 10 秒左右。
+        </div>
+      </div>
+    </AppModal>
 
     <!-- Create Instance Modal -->
     <AppModal
@@ -1211,6 +1221,45 @@ onUnmounted(() => {
   padding: 16px 24px;
   width: 100%;
   flex: 1;
+}
+
+.create-transition-window {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  text-align: center;
+}
+
+.create-transition-spinner {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: 4px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  animation: create-transition-spin 0.9s linear infinite;
+}
+
+.create-transition-title {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.create-transition-text {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  line-height: 1.6;
+}
+
+@keyframes create-transition-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ── Forms ── */
