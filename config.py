@@ -221,7 +221,7 @@ PROXY_REQUEST_TIMEOUT_SECONDS: float = float(
 
 # 长操作（如实例重建）代理超时（秒）
 PROXY_LONG_REQUEST_TIMEOUT_SECONDS: float = float(
-    os.environ.get("PROXY_LONG_REQUEST_TIMEOUT_SECONDS", "180")
+    os.environ.get("PROXY_LONG_REQUEST_TIMEOUT_SECONDS", "660")
 )
 
 
