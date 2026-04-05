@@ -288,8 +288,9 @@ tbody tr:last-child td { border-bottom: none; }
 /* SSH cell */
 .ssh-cell {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
+  flex-wrap: wrap;
 }
 
 .ssh-cmd {
@@ -299,7 +300,9 @@ tbody tr:last-child td { border-bottom: none; }
   padding: 2px 8px;
   border-radius: var(--radius-sm);
   color: var(--color-text);
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-all;
+  overflow-wrap: anywhere;
   border: 1px solid var(--color-border);
 }
 
