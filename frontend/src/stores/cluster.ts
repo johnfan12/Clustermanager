@@ -50,6 +50,11 @@ export interface Instance {
   gpu_indices: number[]
   memory_gb: number
   image_name: string
+  base_image_name?: string
+  runtime_image_name?: string
+  last_snapshot_image_name?: string | null
+  last_snapshot_at?: string | null
+  snapshot_status?: 'none' | 'creating' | 'ready' | 'failed'
   status: 'running' | 'stopped' | 'error'
   ssh_command?: string
   ssh_cmd?: string

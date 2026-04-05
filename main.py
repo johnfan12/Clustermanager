@@ -4,6 +4,7 @@ GPU 集群跳板机聚合管理服务 — 主入口
 """
 
 import asyncio
+from datetime import datetime
 import json
 import logging
 import os
@@ -276,6 +277,19 @@ async def _precheck_central_billing(
     ):
         payload = await request.json()
         requested_gpu_count = int(payload.get("num_gpus") or 0)
+        instance_id = _parse_proxy_instance_id(normalized_path)
+        if instance_id is not None:
+            state = (
+                db.query(ClusterInstanceState)
+                .filter(
+                    ClusterInstanceState.node_id == request.path_params["node_id"],
+                    ClusterInstanceState.node_instance_id == instance_id,
+                    ClusterInstanceState.username == username,
+                )
+                .first()
+            )
+            if state is not None and requested_gpu_count == int(state.gpu_count):
+                requested_gpu_count = 0
 
     if requested_gpu_count > 0:
         ensure_gpu_hours_available(db, username, requested_gpu_count)
@@ -350,6 +364,30 @@ def _handle_central_billing_after_proxy(
         instance_id = _parse_proxy_instance_id(normalized_path)
         if instance_id is None:
             return
+        state = (
+            db.query(ClusterInstanceState)
+            .filter(
+                ClusterInstanceState.node_id == node_id,
+                ClusterInstanceState.node_instance_id == instance_id,
+            )
+            .first()
+        )
+        requested_gpu_count = int((request_payload or {}).get("num_gpus") or 0)
+        response_gpu_count = _extract_gpu_count_from_response(
+            response_payload,
+            requested_gpu_count,
+        )
+        if state is not None and requested_gpu_count == int(state.gpu_count):
+            was_running = str(state.status) == "running"
+            state.container_name = str(response_payload.get("container_name") or state.container_name)
+            state.status = str(response_payload.get("status") or state.status)
+            state.node_online = True
+            state.last_seen_at = datetime.utcnow()
+            if state.status == "running" and not was_running:
+                state.last_billed_at = state.last_seen_at
+            elif state.status != "running":
+                state.last_billed_at = None
+            return
         settle_and_deactivate_instance(
             db,
             node_id=node_id,
@@ -363,9 +401,7 @@ def _handle_central_billing_after_proxy(
             node_instance_id=instance_id,
             username=username,
             container_name=str(response_payload.get("container_name") or ""),
-            gpu_count=_extract_gpu_count_from_response(
-                response_payload, int((request_payload or {}).get("num_gpus") or 0)
-            ),
+            gpu_count=response_gpu_count,
             status=str(response_payload.get("status") or "running"),
         )
     elif (

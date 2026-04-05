@@ -281,11 +281,11 @@
           </div>
         </div>
         <div class="form-hint warning">
-          修改后会先备份数据，再按新配置重建实例。请确保已保存重要数据。
+          仅修改内存会原地生效；修改 GPU 会先保存当前环境快照，再按新配置重建实例。
         </div>
         <div class="form-hint">
-          通过默认 <code>python</code> / <code>pip</code> 安装的 Python 包会保留；
-          <code>apt</code>、Conda 和其他系统层改动不会保留。
+          修改 GPU 时，大多数系统包、npm 包、pip 包和 CLI 状态会跟随快照保留；
+          运行中的进程状态不会保留。
         </div>
       </form>
       <template #footer>
