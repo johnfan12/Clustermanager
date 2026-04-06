@@ -22,8 +22,9 @@
                 到期时间
                 <span
                   class="expire-help"
-                  title="到期时间为关机时间，实例不删除永久保留。"
+                  data-tooltip="到期时间为关机时间，实例不删除永久保留。"
                   aria-label="到期时间为关机时间，实例不删除永久保留。"
+                  tabindex="0"
                 >!</span>
               </span>
             </th>
@@ -428,14 +429,65 @@ tbody tr:last-child td { border-bottom: none; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
-  border: 1px solid var(--color-text-muted);
+  position: relative;
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--color-border-strong);
   border-radius: 999px;
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: 9px;
   font-weight: var(--font-weight-semibold);
-  cursor: help;
+  line-height: 1;
+  cursor: default;
+}
+
+.expire-help::before,
+.expire-help::after {
+  position: absolute;
+  left: 50%;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+  z-index: 10;
+}
+
+.expire-help::before {
+  content: '';
+  top: calc(100% + 3px);
+  transform: translateX(-50%) translateY(-2px);
+  border: 5px solid transparent;
+  border-bottom-color: var(--color-text);
+}
+
+.expire-help::after {
+  content: attr(data-tooltip);
+  top: calc(100% + 12px);
+  width: max-content;
+  max-width: 240px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--color-text);
+  box-shadow: var(--shadow-md);
+  color: #fff;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-normal);
+  line-height: 1.5;
+  white-space: normal;
+  transform: translateX(-50%) translateY(-2px);
+}
+
+.expire-help:hover,
+.expire-help:focus-visible {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.expire-help:hover::before,
+.expire-help:hover::after,
+.expire-help:focus-visible::before,
+.expire-help:focus-visible::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 /* Operations */
