@@ -1177,20 +1177,6 @@ async def proxy(
         raise HTTPException(status_code=502, detail=f"节点 {node_id} 请求失败: {exc}")
 
 
-# ── 节点 Web URL 接口（供前端获取跳转地址）──────────────────────────────────
-
-
-@app.get("/api/cluster/node_urls")
-async def node_urls(username: str = Depends(get_current_user)) -> Dict[str, str]:
-    """返回各节点的 Web 访问地址（供前端跳转使用）。
-
-    Returns:
-        node_id → web_url 的映射字典
-    """
-    del username
-    return config.NODE_WEB_URLS
-
-
 # ── 静态文件 & 首页 ───────────────────────────────────────────────────────
 
 # 保留旧版 static 目录挂载（兼容旧版资源引用）

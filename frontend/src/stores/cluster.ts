@@ -27,7 +27,6 @@ export interface NodeStatus {
   gpu_used: number
   instance_count: number
   gpus: GpuInfo[]
-  web_url: string
 }
 
 export interface ClusterSummary {
@@ -65,7 +64,6 @@ export interface Instance {
 }
 
 export interface Metadata {
-  allow_register: boolean
   memory_options_gb?: number[]
   max_instance_memory_gb?: number
   node_allocatable_memory_gb?: number
@@ -82,9 +80,7 @@ export interface NodeImage {
 export interface AuthNode {
   node_id: string
   name: string
-  web_url: string
   online: boolean
-  allow_register: boolean
 }
 
 export interface SshKeyItem {
@@ -99,9 +95,6 @@ export interface AdminUser {
   username: string
   email: string
   is_admin: boolean
-  quota_gpu?: number
-  quota_memory_gb?: number
-  quota_max_instances?: number
   gpu_hours_quota: number
   gpu_hours_used: number
   gpu_hours_frozen: number

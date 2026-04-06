@@ -202,8 +202,6 @@ async function doLogin() {
       is_admin: boolean
       user: UserInfo
       node_id: string
-      node_name: string
-      entry_url: string
     }>('/api/auth/login', {
       node_id: node.node_id,
       username: loginForm.username,
@@ -240,8 +238,6 @@ async function doRegister() {
       is_admin: boolean
       user: UserInfo
       node_id: string
-      node_name: string
-      entry_url: string
       message?: string
     }>('/api/auth/register', {
       node_id: node.node_id,
