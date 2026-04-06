@@ -582,6 +582,7 @@ const sshKeyForm = reactive({
 const pendingSshInstances = ref<Set<string>>(new Set())
 let sshPollTimer: ReturnType<typeof setInterval> | null = null
 let createTransitionTimer: ReturnType<typeof setTimeout> | null = null
+let createNodeLoadToken = 0
 
 // Computed
 const availableNodes = computed(() => {
@@ -701,36 +702,50 @@ async function refreshGpuHours() {
   }
 }
 
-// Watch for node selection to load metadata
-watch(() => createForm.nodeId, async (nodeId) => {
+async function loadCreateNodeResources(nodeId: string) {
+  const loadToken = ++createNodeLoadToken
   createForm.image = ''
   createImages.value = []
 
-  if (nodeId) {
-    createImagesLoading.value = true
-    try {
-      const [, images] = await Promise.all([
-        clusterStore.fetchMetadata(nodeId),
-        clusterStore.fetchNodeImages(nodeId)
-      ])
+  if (!nodeId) {
+    createImagesLoading.value = false
+    return
+  }
 
-      createImages.value = images
+  createImagesLoading.value = true
+  try {
+    const [, images] = await Promise.all([
+      clusterStore.fetchMetadata(nodeId),
+      clusterStore.fetchNodeImages(nodeId)
+    ])
 
-      if (images.length > 0) {
-        createForm.image = images[0].key
-      }
+    if (loadToken !== createNodeLoadToken || createForm.nodeId !== nodeId) return
 
-      const memoryOptions = availableMemoryOptions.value
-      if (memoryOptions.length > 0 && !memoryOptions.includes(createForm.memoryGb)) {
-        createForm.memoryGb = memoryOptions[0]
-      }
-    } catch (e) {
+    createImages.value = images
+
+    if (images.length > 0) {
+      createForm.image = images[0].key
+    }
+
+    const memoryOptions = availableMemoryOptions.value
+    if (memoryOptions.length > 0 && !memoryOptions.includes(createForm.memoryGb)) {
+      createForm.memoryGb = memoryOptions[0]
+    }
+  } catch (e) {
+    if (loadToken === createNodeLoadToken && createForm.nodeId === nodeId) {
       createImages.value = []
-      console.error('Failed to fetch metadata:', e)
-    } finally {
+    }
+    console.error('Failed to fetch metadata:', e)
+  } finally {
+    if (loadToken === createNodeLoadToken && createForm.nodeId === nodeId) {
       createImagesLoading.value = false
     }
   }
+}
+
+// Watch for node selection to load metadata
+watch(() => createForm.nodeId, (nodeId) => {
+  void loadCreateNodeResources(nodeId)
 })
 
 watch(availableGpuOptions, (options) => {
@@ -759,6 +774,7 @@ watch(rebuildMemoryOptions, (options) => {
 
 watch(() => modals.create, (visible) => {
   if (!visible) {
+    createNodeLoadToken += 1
     createStep.value = 1
     createForm.displayName = ''
     createForm.image = ''
@@ -807,9 +823,13 @@ function openCreateModal() {
   }
   createStep.value = 1
   createForm.displayName = ''
-  createForm.image = ''
-  createForm.nodeId = availableNodes.value[0]?.node_id || ''
+  const nextNodeId = availableNodes.value[0]?.node_id || ''
+  const shouldReloadNodeResources = createForm.nodeId === nextNodeId
+  createForm.nodeId = nextNodeId
   modals.create = true
+  if (shouldReloadNodeResources) {
+    void loadCreateNodeResources(nextNodeId)
+  }
 }
 
 async function loadSshKeys() {
