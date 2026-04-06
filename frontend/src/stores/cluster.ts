@@ -153,9 +153,9 @@ export const useClusterStore = defineStore('cluster', () => {
     await api.delete(`/api/proxy/${nodeId}/api/instances/${instanceId}`)
   }
 
-  async function renewInstance(nodeId: string, instanceId: number, extendDays: number) {
+  async function renewInstance(nodeId: string, instanceId: number, extendHours: number) {
     await api.post(`/api/proxy/${nodeId}/api/instances/${instanceId}/renew`, {
-      extend_days: extendDays
+      extend_hours: extendHours
     })
   }
 

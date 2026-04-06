@@ -162,16 +162,19 @@
             </div>
           </div>
           <div class="field">
-            <label>到期时间</label>
-            <select v-model="createForm.expireHours" required>
-              <option :value="24">1 天</option>
-              <option :value="48">2 天</option>
-              <option :value="72">3 天</option>
-              <option :value="96">4 天</option>
-              <option :value="120">5 天</option>
-              <option :value="144">6 天</option>
-              <option :value="168">7 天</option>
-            </select>
+            <label>到期时间（小时）</label>
+            <input
+              v-model.number="createForm.expireHours"
+              type="number"
+              min="1"
+              max="168"
+              step="1"
+              required
+              placeholder="例如：36"
+            />
+            <div class="field-hint">
+              请输入 1-168 小时；到期后自动关机，实例不会被删除。
+            </div>
           </div>
           <div class="form-hint">
             已按节点空闲 GPU 与后端内存配置自动筛选可选项。
@@ -219,19 +222,19 @@
           <span v-if="showTechnicalName(selectedInstance)">（系统名：{{ selectedInstance?.container_name }}）</span>
         </div>
         <div class="field">
-          <label>续期天数</label>
-          <select v-model="renewForm.days" required>
-            <option :value="1">1 天</option>
-            <option :value="2">2 天</option>
-            <option :value="3">3 天</option>
-            <option :value="4">4 天</option>
-            <option :value="5">5 天</option>
-            <option :value="6">6 天</option>
-            <option :value="7">7 天</option>
-          </select>
+          <label>续期时长（小时）</label>
+          <input
+            v-model.number="renewForm.hours"
+            type="number"
+            min="1"
+            max="168"
+            step="1"
+            required
+            placeholder="例如：12"
+          />
         </div>
         <div class="form-hint">
-          可续期 1-7 天；仅在实例剩余时间少于 7 天时可续期。
+          可续期 1-168 小时；仅在实例剩余时间少于 7 天时可续期。
         </div>
       </form>
       <template #footer>
@@ -239,6 +242,7 @@
         <AppButton
           variant="primary"
           :loading="loading.renew"
+          :disabled="!canSubmitRenew"
           @click="handleRenew"
         >
           确认续期
@@ -557,7 +561,7 @@ const createImagesLoading = ref(false)
 const createStep = ref(1)
 
 const renewForm = reactive({
-  days: 1
+  hours: 24
 })
 
 const rebuildForm = reactive({
@@ -665,7 +669,12 @@ const canSubmitCreate = computed(() => {
       && createForm.image
       && availableGpuOptions.value.includes(createForm.numGpus)
       && availableMemoryOptions.value.includes(createForm.memoryGb)
+      && isValidHourValue(createForm.expireHours)
   )
+})
+
+const canSubmitRenew = computed(() => {
+  return Boolean(selectedInstance.value && isValidHourValue(renewForm.hours))
 })
 
 const canSubmitRebuild = computed(() => {
@@ -786,6 +795,11 @@ function formatDateTime(value?: string | null): string {
   return date.toLocaleString('zh-CN', { hour12: false })
 }
 
+function isValidHourValue(value: unknown): boolean {
+  const hours = Number(value)
+  return Number.isInteger(hours) && hours >= 1 && hours <= 168
+}
+
 function openCreateModal() {
   if (availableNodes.value.length === 0) {
     toast.error('当前没有可用的节点')
@@ -841,7 +855,7 @@ function handleInstanceAction(action: string, instance: Instance) {
       handleRestart(instance)
       break
     case 'renew':
-      renewForm.days = 1
+      renewForm.hours = 24
       modals.renew = true
       break
     case 'rebuild':
@@ -887,12 +901,13 @@ async function handleCreate() {
 
   loading.create = true
   try {
+    const expireHours = Number(createForm.expireHours)
     const result = await clusterStore.createInstance(createForm.nodeId, {
       display_name: createForm.displayName.trim() || undefined,
       num_gpus: createForm.numGpus,
       memory_gb: createForm.memoryGb,
       image: createForm.image,
-      expire_hours: createForm.expireHours
+      expire_hours: expireHours
     })
     toast.success('实例创建成功')
     modals.create = false
@@ -936,15 +951,20 @@ async function handleRestart(instance: Instance) {
 
 async function handleRenew() {
   if (!selectedInstance.value) return
+  if (!canSubmitRenew.value) {
+    toast.error('请输入 1-168 小时的续期时长')
+    return
+  }
 
   loading.renew = true
   try {
+    const extendHours = Number(renewForm.hours)
     await clusterStore.renewInstance(
       selectedInstance.value.node_id,
       Number(selectedInstance.value.id),
-      renewForm.days
+      extendHours
     )
-    toast.success(`实例已续期 ${renewForm.days} 天`)
+    toast.success(`实例已续期 ${extendHours} 小时`)
     modals.renew = false
     await clusterStore.fetchAll()
   } catch (e: any) {

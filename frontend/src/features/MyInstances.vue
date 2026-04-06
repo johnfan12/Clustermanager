@@ -17,7 +17,16 @@
             <th>状态</th>
             <th>SSH 连接</th>
             <th>密码</th>
-            <th>到期时间</th>
+            <th>
+              <span class="expire-heading">
+                到期时间
+                <span
+                  class="expire-help"
+                  title="到期时间为关机时间，实例不删除永久保留。"
+                  aria-label="到期时间为关机时间，实例不删除永久保留。"
+                >!</span>
+              </span>
+            </th>
             <th>操作</th>
           </tr>
         </thead>
@@ -406,6 +415,27 @@ tbody tr:last-child td { border-bottom: none; }
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   margin-top: 2px;
+}
+
+.expire-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.expire-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--color-text-muted);
+  border-radius: 999px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  cursor: help;
 }
 
 /* Operations */
