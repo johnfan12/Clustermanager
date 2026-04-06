@@ -38,6 +38,7 @@ class TokenResponse(BaseModel):
     is_admin: bool
     user: dict[str, Any] | None = None
     node_id: str | None = None
+    # Legacy static frontend still reads node_name/entry_url for direct node entry.
     node_name: str | None = None
     entry_url: str | None = None
     message: str | None = None
@@ -91,7 +92,7 @@ def _get_node_config(node_id: str) -> dict[str, Any]:
 
 
 def _build_entry_url(node_id: str, token: str) -> str | None:
-    """构造进入节点 Web 管理页的免登录地址。"""
+    """构造旧静态页使用的节点 Web 直达地址。"""
     base_url = config.NODE_WEB_URLS.get(node_id)
     if not base_url:
         return None
@@ -158,7 +159,7 @@ def _build_token_response(
     user_payload: dict[str, Any] | None,
     message: str | None = None,
 ) -> TokenResponse:
-    """统一组装登录/注册成功响应。"""
+    """统一组装登录/注册响应，兼容旧静态页的节点直达字段。"""
     node_cfg = _get_node_config(node_id)
     user_info = user_payload or {}
     username = str(user_info.get("username") or "")
@@ -238,10 +239,11 @@ async def _fetch_node_auth_meta(
     node_id: str,
     node_cfg: dict[str, Any],
 ) -> dict[str, Any]:
-    """查询节点注册能力与在线状态，供前端认证页展示。"""
+    """查询节点注册能力与在线状态，保留旧静态页展示字段。"""
     result = {
         "node_id": node_id,
         "name": node_cfg.get("name", node_id),
+        # The Vue SPA no longer consumes web_url/allow_register, but legacy static does.
         "web_url": config.NODE_WEB_URLS.get(node_id, ""),
         "online": False,
         "allow_register": False,

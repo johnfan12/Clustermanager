@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
@@ -76,6 +76,8 @@ logger.addHandler(console_handler)
 
 app = FastAPI(title="GPU 集群管理", version="1.0.0")
 app.include_router(auth_router)
+
+LEGACY_STATIC_INDEX = "static/index.html"
 
 # 请求超时（秒）
 REQUEST_TIMEOUT = 5.0
@@ -616,6 +618,7 @@ async def _fetch_node_status(
         "gpu_used": 0,
         "instance_count": 0,
         "gpus": [],
+        # Legacy static frontend still uses web_url to build node direct-entry links.
         "web_url": config.NODE_WEB_URLS.get(node_id, ""),
     }
 
@@ -1179,16 +1182,19 @@ async def proxy(
 
 # ── 静态文件 & 首页 ───────────────────────────────────────────────────────
 
-# 保留旧版 static 目录挂载（兼容旧版资源引用）
+# 旧版 static 前端仅作为应急/回退入口保留；新功能应进入 frontend Vue SPA。
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+def _legacy_static_index_response() -> FileResponse:
+    """返回旧静态前端，但不把它作为正式入口继续演进。"""
+    return FileResponse(LEGACY_STATIC_INDEX)
 
 
 @app.get("/legacy")
 async def legacy_index():
-    """旧版前端入口（迁移完成前保留）。"""
-    from fastapi.responses import FileResponse
-
-    return FileResponse("static/index.html")
+    """旧版前端入口，仅用于 SPA 异常时的兼容应急访问。"""
+    return _legacy_static_index_response()
 
 
 # ── 新前端 (Vue SPA) ──────────────────────────────────────────────────────
@@ -1202,8 +1208,6 @@ if os.path.isdir(_SPA_DIR):
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
         """为 Vue Router 提供 HTML5 History 回退。"""
-        from fastapi.responses import FileResponse
-
         # 尝试直接返回文件
         file_path = os.path.join(_SPA_DIR, full_path)
         if os.path.isfile(file_path):
@@ -1214,10 +1218,8 @@ else:
     # SPA 未构建时，使用旧版首页
     @app.get("/")
     async def index():
-        """将根路径重定向到前端页面（SPA 未构建时回退旧版）。"""
-        from fastapi.responses import FileResponse
-
-        return FileResponse("static/index.html")
+        """SPA 未构建时回退旧版应急页面。"""
+        return _legacy_static_index_response()
 
 
 
