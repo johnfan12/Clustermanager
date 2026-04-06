@@ -9,9 +9,7 @@ import { ref, computed } from 'vue'
 const STORAGE_KEYS = {
   token: 'cluster_token',
   user: 'cluster_user',
-  nodeId: 'cluster_node_id',
-  nodeName: 'cluster_node_name',
-  entryUrl: 'cluster_entry_url'
+  nodeId: 'cluster_node_id'
 } as const
 
 export interface UserInfo {
@@ -35,8 +33,6 @@ export const useAuthStore = defineStore('auth', () => {
   const token = ref(localStorage.getItem(STORAGE_KEYS.token) || '')
   const user = ref<UserInfo | null>(safeParse<UserInfo>(localStorage.getItem(STORAGE_KEYS.user)))
   const currentNodeId = ref(localStorage.getItem(STORAGE_KEYS.nodeId) || '')
-  const currentNodeName = ref(localStorage.getItem(STORAGE_KEYS.nodeName) || '')
-  const currentEntryUrl = ref(localStorage.getItem(STORAGE_KEYS.entryUrl) || '')
 
   // ── Getters ──
   const isAuthenticated = computed(() => Boolean(token.value && user.value))
@@ -59,8 +55,6 @@ export const useAuthStore = defineStore('auth', () => {
       is_admin: Boolean(data.is_admin)
     }
     currentNodeId.value = data.node_id || ''
-    currentNodeName.value = data.node_name || ''
-    currentEntryUrl.value = data.entry_url || ''
     persist()
   }
 
@@ -68,17 +62,15 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.setItem(STORAGE_KEYS.token, token.value)
     localStorage.setItem(STORAGE_KEYS.user, JSON.stringify(user.value))
     localStorage.setItem(STORAGE_KEYS.nodeId, currentNodeId.value)
-    localStorage.setItem(STORAGE_KEYS.nodeName, currentNodeName.value)
-    localStorage.setItem(STORAGE_KEYS.entryUrl, currentEntryUrl.value)
   }
 
   function logout() {
     token.value = ''
     user.value = null
     currentNodeId.value = ''
-    currentNodeName.value = ''
-    currentEntryUrl.value = ''
     Object.values(STORAGE_KEYS).forEach((key) => localStorage.removeItem(key))
+    localStorage.removeItem('cluster_node_name')
+    localStorage.removeItem('cluster_entry_url')
   }
 
   return {
@@ -86,8 +78,6 @@ export const useAuthStore = defineStore('auth', () => {
     token,
     user,
     currentNodeId,
-    currentNodeName,
-    currentEntryUrl,
     // getters
     isAuthenticated,
     isAdmin,

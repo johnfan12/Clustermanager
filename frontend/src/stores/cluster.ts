@@ -4,7 +4,7 @@
  */
 
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { api } from '@/shared/utils/api'
 
 // ── Types ──
@@ -62,19 +62,6 @@ export interface Instance {
   ssh_password: string
   expire_at: string | null
   [key: string]: unknown
-}
-
-export interface QuotaInfo {
-  quota_gpu?: number
-  quota_memory_gb?: number
-  quota_max_instances?: number
-  used_gpu: number
-  used_memory_gb: number
-  used_instances: number
-  gpu_hours_quota?: number
-  gpu_hours_used?: number
-  gpu_hours_frozen?: number
-  gpu_hours_remaining?: number
 }
 
 export interface Metadata {
@@ -137,15 +124,7 @@ export const useClusterStore = defineStore('cluster', () => {
   const summary = ref<ClusterSummary>({ total_gpu: 0, free_gpu: 0, total_instances: 0 })
   const instances = ref<Instance[]>([])
   const authNodes = ref<AuthNode[]>([])
-  const quota = ref<QuotaInfo | null>(null)
   const metadata = ref<Metadata | null>(null)
-  const loading = ref(false)
-  const error = ref('')
-
-  // Derived
-  const runningInstances = computed(() =>
-    instances.value.filter((i) => i.status === 'running')
-  )
 
   // Auto-refresh
   let _timer: ReturnType<typeof setInterval> | null = null
@@ -200,12 +179,6 @@ export const useClusterStore = defineStore('cluster', () => {
       `/api/proxy/${nodeId}/api/instances/${instanceId}/logs`
     )
     return data.logs || '暂无日志'
-  }
-
-  async function fetchQuota() {
-    const data = await api.get<QuotaInfo>('/api/quota/me')
-    quota.value = data
-    return data
   }
 
   async function fetchMetadata(nodeId: string) {
@@ -296,14 +269,10 @@ export const useClusterStore = defineStore('cluster', () => {
   }
 
   async function fetchAll() {
-    loading.value = true
-    error.value = ''
     try {
       await Promise.all([fetchClusterStatus(), fetchMyInstances()])
-    } catch (e) {
-      error.value = String(e)
-    } finally {
-      loading.value = false
+    } catch {
+      // Callers already handle visible errors; keep auto-refresh best-effort.
     }
   }
 
@@ -327,12 +296,7 @@ export const useClusterStore = defineStore('cluster', () => {
     summary,
     instances,
     authNodes,
-    quota,
     metadata,
-    loading,
-    error,
-    // getters
-    runningInstances,
     // actions
     fetchAuthNodes,
     fetchClusterStatus,
@@ -353,7 +317,6 @@ export const useClusterStore = defineStore('cluster', () => {
     updateUserQuota,
     fetchAdminInstances,
     forceDeleteInstance,
-    fetchQuota,
     fetchMetadata,
     fetchNodeImages,
     fetchSshKeys,
