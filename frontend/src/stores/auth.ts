@@ -67,8 +67,6 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
     currentNodeId.value = ''
     Object.values(STORAGE_KEYS).forEach((key) => localStorage.removeItem(key))
-    localStorage.removeItem('cluster_node_name')
-    localStorage.removeItem('cluster_entry_url')
   }
 
   return {

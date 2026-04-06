@@ -151,7 +151,6 @@ alembic upgrade head
 - `JWT_SECRET`：需与所有 Servermanager 保持一致
 - `INTERNAL_SERVICE_TOKEN`：需与所有 Servermanager 保持一致
 - `NODES_JSON`：节点 API 地址与 admin_token
-- `NODE_WEB_URLS_JSON`：前端“进入服务器”跳转地址
 - `FRP_TOKEN`：与 frps 一致
 - `FRP_VISITOR_CONFIG_DIR`：默认 `/etc/frp/visitors`
 - `CLUSTER_DATABASE_URL`、`AUTO_PROVISION_ON_NODE_LOGIN`

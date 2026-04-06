@@ -33,17 +33,6 @@ def _load_nodes_from_env() -> dict:
     return {}
 
 
-def _load_node_web_urls_from_env() -> dict:
-    """从环境变量加载节点 Web URL 配置（JSON 格式）."""
-    urls_json = os.environ.get("NODE_WEB_URLS_JSON", "")
-    if urls_json:
-        try:
-            return json.loads(urls_json)
-        except json.JSONDecodeError:
-            pass
-    return {}
-
-
 def _extract_ports_from_nodes(nodes: dict) -> tuple[int, ...]:
     """从 NODES.api 中提取 FRP 需要放行的远端 API 端口."""
     ports: set[int] = set()
@@ -155,16 +144,6 @@ def gpu_hours_period_start_utc(period: str) -> datetime:
         tzinfo=GPU_HOURS_RESET_TIMEZONE,
     )
     return local_start.astimezone(timezone.utc).replace(tzinfo=None)
-
-# ============================================================================
-# 各节点 gpu_manager 的 Web 访问地址（前端"进入管理"按钮跳转）
-# 可以通过 .env 中的 NODE_WEB_URLS_JSON 覆盖
-# ============================================================================
-
-NODE_WEB_URLS: dict = _load_node_web_urls_from_env() or {
-    "node1": "http://your-vps-ip:18881",
-    "node2": "http://your-vps-ip:18882",
-}
 
 # ============================================================================
 # FRP 配置 — 用于访问各节点上的容器 SSH

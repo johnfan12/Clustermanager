@@ -38,9 +38,6 @@ class TokenResponse(BaseModel):
     is_admin: bool
     user: dict[str, Any] | None = None
     node_id: str | None = None
-    # Legacy static frontend still reads node_name/entry_url for direct node entry.
-    node_name: str | None = None
-    entry_url: str | None = None
     message: str | None = None
 
 
@@ -89,15 +86,6 @@ def _get_node_config(node_id: str) -> dict[str, Any]:
     if node_cfg is None:
         raise HTTPException(status_code=404, detail="节点不存在")
     return node_cfg
-
-
-def _build_entry_url(node_id: str, token: str) -> str | None:
-    """构造旧静态页使用的节点 Web 直达地址。"""
-    base_url = config.NODE_WEB_URLS.get(node_id)
-    if not base_url:
-        return None
-    separator = "&" if "?" in base_url else "?"
-    return f"{base_url}{separator}token={token}"
 
 
 def _extract_error_detail(response: httpx.Response) -> str:
@@ -155,25 +143,20 @@ async def _request_node_json(
 
 def _build_token_response(
     node_id: str,
-    access_token: str,
     user_payload: dict[str, Any] | None,
     message: str | None = None,
 ) -> TokenResponse:
-    """统一组装登录/注册响应，兼容旧静态页的节点直达字段。"""
-    node_cfg = _get_node_config(node_id)
+    """统一组装登录/注册响应。"""
     user_info = user_payload or {}
     username = str(user_info.get("username") or "")
     is_admin = bool(user_info.get("is_admin", False))
     cluster_token = create_token(username=username, is_admin=is_admin)
-    del access_token
     return TokenResponse(
         access_token=cluster_token,
         username=username,
         is_admin=is_admin,
         user=user_payload,
         node_id=node_id,
-        node_name=str(node_cfg.get("name") or node_id),
-        entry_url=_build_entry_url(node_id, cluster_token),
         message=message,
     )
 
@@ -212,7 +195,7 @@ async def _login_to_node(node_id: str, username: str, password: str) -> TokenRes
     user_payload = data.get("user")
     if user_payload is not None and not isinstance(user_payload, dict):
         user_payload = None
-    return _build_token_response(node_id, access_token, user_payload)
+    return _build_token_response(node_id, user_payload)
 
 
 async def _register_to_node(
@@ -239,14 +222,11 @@ async def _fetch_node_auth_meta(
     node_id: str,
     node_cfg: dict[str, Any],
 ) -> dict[str, Any]:
-    """查询节点注册能力与在线状态，保留旧静态页展示字段。"""
+    """查询节点在线状态，供认证页展示。"""
     result = {
         "node_id": node_id,
         "name": node_cfg.get("name", node_id),
-        # The Vue SPA no longer consumes web_url/allow_register, but legacy static does.
-        "web_url": config.NODE_WEB_URLS.get(node_id, ""),
         "online": False,
-        "allow_register": False,
     }
     try:
         response = await client.get(
@@ -254,9 +234,6 @@ async def _fetch_node_auth_meta(
             timeout=3.0,
         )
         response.raise_for_status()
-        payload = response.json()
-        if isinstance(payload, dict):
-            result["allow_register"] = bool(payload.get("allow_register", False))
         result["online"] = True
     except Exception:
         pass

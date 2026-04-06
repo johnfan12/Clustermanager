@@ -77,8 +77,6 @@ logger.addHandler(console_handler)
 app = FastAPI(title="GPU 集群管理", version="1.0.0")
 app.include_router(auth_router)
 
-LEGACY_STATIC_INDEX = "static/index.html"
-
 # 请求超时（秒）
 REQUEST_TIMEOUT = 5.0
 HOP_BY_HOP_HEADERS = {
@@ -618,8 +616,6 @@ async def _fetch_node_status(
         "gpu_used": 0,
         "instance_count": 0,
         "gpus": [],
-        # Legacy static frontend still uses web_url to build node direct-entry links.
-        "web_url": config.NODE_WEB_URLS.get(node_id, ""),
     }
 
     try:
@@ -1180,23 +1176,6 @@ async def proxy(
         raise HTTPException(status_code=502, detail=f"节点 {node_id} 请求失败: {exc}")
 
 
-# ── 静态文件 & 首页 ───────────────────────────────────────────────────────
-
-# 旧版 static 前端仅作为应急/回退入口保留；新功能应进入 frontend Vue SPA。
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-
-def _legacy_static_index_response() -> FileResponse:
-    """返回旧静态前端，但不把它作为正式入口继续演进。"""
-    return FileResponse(LEGACY_STATIC_INDEX)
-
-
-@app.get("/legacy")
-async def legacy_index():
-    """旧版前端入口，仅用于 SPA 异常时的兼容应急访问。"""
-    return _legacy_static_index_response()
-
-
 # ── 新前端 (Vue SPA) ──────────────────────────────────────────────────────
 # 构建产物输出到 static/dist/，由 Vite build 生成
 _SPA_DIR = os.path.join(os.path.dirname(__file__), "static", "dist")
@@ -1215,11 +1194,13 @@ if os.path.isdir(_SPA_DIR):
         # 否则返回 index.html 让 Vue Router 处理
         return FileResponse(os.path.join(_SPA_DIR, "index.html"))
 else:
-    # SPA 未构建时，使用旧版首页
     @app.get("/")
     async def index():
-        """SPA 未构建时回退旧版应急页面。"""
-        return _legacy_static_index_response()
+        """SPA 未构建时返回明确错误，不再回退旧静态入口。"""
+        raise HTTPException(
+            status_code=503,
+            detail="Clustermanager Vue SPA has not been built. Run frontend build before serving the web UI.",
+        )
 
 
 
