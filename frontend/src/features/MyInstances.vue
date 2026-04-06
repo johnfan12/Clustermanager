@@ -314,13 +314,16 @@ tbody tr:last-child td { border-bottom: none; }
 
 /* SSH cell */
 .ssh-cell {
-  display: flex;
-  align-items: flex-start;
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  max-width: 100%;
 }
 
 .ssh-cmd {
+  flex: 1 1 auto;
+  min-width: 0;
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
   background: var(--color-surface-alt);
@@ -334,6 +337,7 @@ tbody tr:last-child td { border-bottom: none; }
 }
 
 .copy-btn {
+  flex: 0 0 auto;
   padding: 2px 8px;
   font-size: var(--font-size-xs);
   background: none;
