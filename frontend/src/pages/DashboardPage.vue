@@ -583,6 +583,17 @@ const pendingSshInstances = ref<Set<string>>(new Set())
 let sshPollTimer: ReturnType<typeof setInterval> | null = null
 let createTransitionTimer: ReturnType<typeof setTimeout> | null = null
 let createNodeLoadToken = 0
+const CPU_ONLY_GPU_COUNT = 0
+
+function memoryOptionsForMetadata(metadata: Metadata | null | undefined): number[] {
+  const options = metadata?.memory_options_gb
+  if (Array.isArray(options) && options.length > 0) {
+    return [...options].sort((a, b) => a - b)
+  }
+
+  const maxMemory = metadata?.max_instance_memory_gb ?? 128
+  return [8, 16, 32, 64, 128].filter((v) => v <= maxMemory)
+}
 
 // Computed
 const availableNodes = computed(() => {
@@ -621,43 +632,30 @@ const rebuildGpuOptions = computed(() => {
 })
 
 const availableMemoryOptions = computed(() => {
-  const options = clusterStore.metadata?.memory_options_gb
+  const sorted = memoryOptionsForMetadata(clusterStore.metadata)
   const nodeFreeMemory = clusterStore.metadata?.node_memory_free_gb
-  if (Array.isArray(options) && options.length > 0) {
-    const sorted = [...options].sort((a, b) => a - b)
-    if (typeof nodeFreeMemory === 'number') {
-      return sorted.filter((v) => v <= nodeFreeMemory)
-    }
-    return sorted
+  if (createForm.numGpus === CPU_ONLY_GPU_COUNT) {
+    return sorted.length > 0 ? [sorted[0]] : []
   }
-  const maxMemory = clusterStore.metadata?.max_instance_memory_gb ?? 128
-  const fallback = [8, 16, 32, 64, 128].filter((v) => v <= maxMemory)
   if (typeof nodeFreeMemory === 'number') {
-    return fallback.filter((v) => v <= nodeFreeMemory)
+    return sorted.filter((v) => v <= nodeFreeMemory)
   }
-  return fallback
+  return sorted
 })
 
 const rebuildMemoryOptions = computed(() => {
-  const options = rebuildMetadata.value?.memory_options_gb
+  const sorted = memoryOptionsForMetadata(rebuildMetadata.value)
   const nodeFreeMemory = rebuildMetadata.value?.node_memory_free_gb
   const currentMemory = selectedInstance.value?.memory_gb ?? 0
   const effectiveFree = typeof nodeFreeMemory === 'number' ? nodeFreeMemory + currentMemory : undefined
 
-  if (Array.isArray(options) && options.length > 0) {
-    const sorted = [...options].sort((a, b) => a - b)
-    if (typeof effectiveFree === 'number') {
-      return sorted.filter((v) => v <= effectiveFree)
-    }
-    return sorted
+  if (rebuildForm.numGpus === CPU_ONLY_GPU_COUNT) {
+    return sorted.length > 0 ? [sorted[0]] : []
   }
-
-  const maxMemory = rebuildMetadata.value?.max_instance_memory_gb ?? 128
-  const fallback = [8, 16, 32, 64, 128].filter((v) => v <= maxMemory)
   if (typeof effectiveFree === 'number') {
-    return fallback.filter((v) => v <= effectiveFree)
+    return sorted.filter((v) => v <= effectiveFree)
   }
-  return fallback
+  return sorted
 })
 
 const canProceedCreateStep1 = computed(() => {
