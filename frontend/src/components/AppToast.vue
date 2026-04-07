@@ -33,13 +33,12 @@ const iconMap: Record<string, string> = {
 <style scoped>
 .toast-container {
   position: fixed;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
+  top: 24px;
+  right: 24px;
   z-index: var(--z-toast);
   display: flex;
-  flex-direction: column-reverse;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 8px;
   pointer-events: none;
 }
@@ -65,8 +64,9 @@ const iconMap: Record<string, string> = {
 }
 
 .toast-success {
-  background: var(--color-success);
-  color: #ffffff;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  color: var(--color-text);
 }
 
 .toast-error {
