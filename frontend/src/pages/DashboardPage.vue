@@ -595,6 +595,17 @@ function memoryOptionsForMetadata(metadata: Metadata | null | undefined): number
   return [8, 16, 32, 64, 128].filter((v) => v <= maxMemory)
 }
 
+function gpuMemoryLimitForSelection(
+  numGpus: number,
+  metadata: Metadata | null | undefined,
+  gpuTotal: number | undefined
+): number | undefined {
+  const nodeMemory = metadata?.node_allocatable_memory_gb
+  if (numGpus <= CPU_ONLY_GPU_COUNT || typeof nodeMemory !== 'number') return undefined
+  if (typeof gpuTotal !== 'number' || gpuTotal <= 0) return undefined
+  return (nodeMemory * numGpus) / gpuTotal
+}
+
 // Computed
 const availableNodes = computed(() => {
   return clusterStore.nodes.filter((n: NodeStatus) => n.online)
@@ -637,10 +648,18 @@ const availableMemoryOptions = computed(() => {
   if (createForm.numGpus === CPU_ONLY_GPU_COUNT) {
     return sorted.length > 0 ? [sorted[0]] : []
   }
+  const gpuMemoryLimit = gpuMemoryLimitForSelection(
+    createForm.numGpus,
+    clusterStore.metadata,
+    selectedCreateNode.value?.gpu_total
+  )
+  const gpuLimited = typeof gpuMemoryLimit === 'number'
+    ? sorted.filter((v) => v <= gpuMemoryLimit)
+    : sorted
   if (typeof nodeFreeMemory === 'number') {
-    return sorted.filter((v) => v <= nodeFreeMemory)
+    return gpuLimited.filter((v) => v <= nodeFreeMemory)
   }
-  return sorted
+  return gpuLimited
 })
 
 const rebuildMemoryOptions = computed(() => {
@@ -652,10 +671,18 @@ const rebuildMemoryOptions = computed(() => {
   if (rebuildForm.numGpus === CPU_ONLY_GPU_COUNT) {
     return sorted.length > 0 ? [sorted[0]] : []
   }
+  const gpuMemoryLimit = gpuMemoryLimitForSelection(
+    rebuildForm.numGpus,
+    rebuildMetadata.value,
+    selectedRebuildNode.value?.gpu_total
+  )
+  const gpuLimited = typeof gpuMemoryLimit === 'number'
+    ? sorted.filter((v) => v <= gpuMemoryLimit)
+    : sorted
   if (typeof effectiveFree === 'number') {
-    return sorted.filter((v) => v <= effectiveFree)
+    return gpuLimited.filter((v) => v <= effectiveFree)
   }
-  return sorted
+  return gpuLimited
 })
 
 const canProceedCreateStep1 = computed(() => {
