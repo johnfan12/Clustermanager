@@ -30,6 +30,7 @@
         <!-- My Instances Section -->
         <MyInstances
           :instances="clusterStore.instances"
+          :nodes="clusterStore.nodes"
           :pending-ssh-instances="pendingSshInstances"
           @action="handleInstanceAction"
         />

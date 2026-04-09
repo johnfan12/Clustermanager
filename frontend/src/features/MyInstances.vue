@@ -47,10 +47,18 @@
             <td>{{ inst.memory_gb != null ? inst.memory_gb + 'G' : '—' }}</td>
             <td>{{ inst.image_name || '—' }}</td>
             <td>
-              <span :class="statusClass(inst.status)">
-                <span class="status-dot" aria-hidden="true" />
-                <span>{{ statusText(inst.status) }}</span>
-              </span>
+              <div class="status-cell">
+                <span :class="statusClass(inst.status)">
+                  <span class="status-dot" aria-hidden="true" />
+                  <span>{{ statusText(inst.status) }}</span>
+                </span>
+                <div
+                  v-if="inst.status === 'stopped'"
+                  :class="powerHintClass(inst)"
+                >
+                  {{ powerHintText(inst) }}
+                </div>
+              </div>
             </td>
             <td>
               <div v-if="sshCommand(inst) !== '—'" class="ssh-cell">
@@ -117,13 +125,14 @@
 
 <script setup lang="ts">
 import { computed, reactive } from 'vue'
-import type { Instance } from '@/stores/cluster'
+import type { Instance, NodeStatus } from '@/stores/cluster'
 import { formatExpire, expireCountdown } from '@/shared/utils/format'
 import { copyToClipboard } from '@/shared/utils/clipboard'
 import { useToastStore } from '@/stores/toast'
 
 const props = defineProps<{
   instances: Instance[]
+  nodes: NodeStatus[]
   pendingSshInstances?: Set<string>
 }>()
 
@@ -137,6 +146,10 @@ const passwordVisible = reactive(new Set<number>())
 
 const runningCount = computed(() =>
   props.instances.filter((i) => i.status === 'running').length
+)
+
+const nodeMap = computed(() =>
+  new Map(props.nodes.map((node) => [node.node_id, node]))
 )
 
 function gpuCount(inst: Instance): number {
@@ -168,6 +181,23 @@ function statusText(status: string): string {
   if (status === 'running') return '运行'
   if (status === 'stopped') return '停止'
   return '异常'
+}
+
+function canStartInstance(inst: Instance): boolean {
+  const node = nodeMap.value.get(inst.node_id)
+  if (!node || !node.online) return false
+
+  const requiredGpuCount = gpuCount(inst)
+  if (requiredGpuCount <= 0) return true
+  return requiredGpuCount <= node.gpu_free
+}
+
+function powerHintText(inst: Instance): string {
+  return canStartInstance(inst) ? '可开机' : '不可开机'
+}
+
+function powerHintClass(inst: Instance): string {
+  return canStartInstance(inst) ? 'power-hint can-start' : 'power-hint cannot-start'
 }
 
 function togglePassword(idx: number) {
@@ -292,6 +322,13 @@ tbody tr:last-child td { border-bottom: none; }
 }
 
 /* Status */
+.status-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
 .status-running,
 .status-stopped,
 .status-error {
@@ -320,6 +357,20 @@ tbody tr:last-child td { border-bottom: none; }
   border-radius: 999px;
   flex: 0 0 auto;
   background: currentColor;
+}
+
+.power-hint {
+  font-size: var(--font-size-xs);
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.power-hint.can-start {
+  color: var(--color-success);
+}
+
+.power-hint.cannot-start {
+  color: var(--color-danger);
 }
 
 /* SSH cell */
