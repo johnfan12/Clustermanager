@@ -47,6 +47,9 @@ class ClusterUser(Base):
     ssh_keys = relationship(
         "ClusterUserSSHKey", back_populates="user", cascade="all, delete-orphan"
     )
+    agent_sessions = relationship(
+        "ClusterAgentSession", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class ClusterInstanceState(Base):
@@ -136,3 +139,43 @@ class ClusterUserSSHKey(Base):
     )
 
     user = relationship("ClusterUser", back_populates="ssh_keys")
+
+
+class ClusterAgentSession(Base):
+    """Controller-side durable state for one agent-managed dev session."""
+
+    __tablename__ = "cluster_agent_sessions"
+    __table_args__ = (
+        UniqueConstraint(
+            "node_id",
+            "node_instance_id",
+            name="uq_cluster_agent_sessions_node_instance",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(
+        String(64),
+        ForeignKey("cluster_users.username", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    node_id = Column(String(64), nullable=False, index=True)
+    node_instance_id = Column(Integer, nullable=False)
+    container_name = Column(String(128), nullable=False)
+    display_name = Column(String(128), nullable=False)
+    image_name = Column(String(255), nullable=False)
+    desired_num_gpus = Column(Integer, nullable=False, default=0)
+    desired_memory_gb = Column(Integer, nullable=False, default=8)
+    expire_hours = Column(Integer, nullable=False, default=24)
+    instance_status = Column(String(32), nullable=False, default="unknown")
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    user = relationship("ClusterUser", back_populates="agent_sessions")

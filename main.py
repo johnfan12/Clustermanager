@@ -38,7 +38,12 @@ from billing import (
     sync_billing_once,
 )
 from database import get_db
-from models import ClusterInstanceState, ClusterUser, ClusterUserSSHKey
+from models import (
+    ClusterAgentSession,
+    ClusterInstanceState,
+    ClusterUser,
+    ClusterUserSSHKey,
+)
 from ssh_keys import (
     MAX_SSH_KEYS_PER_USER,
     compute_ssh_key_fingerprint,
@@ -152,6 +157,25 @@ class SSHKeyPayload(BaseModel):
     fingerprint: str
 
 
+class AgentSessionCreateRequest(BaseModel):
+    """Create one agent-managed development session."""
+
+    num_gpus: int = Field(ge=0)
+    memory_gb: int = Field(ge=8)
+    image: str = Field(min_length=1, max_length=255)
+    expire_hours: int = Field(ge=1, le=168)
+    display_name: str | None = Field(default=None, max_length=128)
+    node_id: str | None = Field(default=None, max_length=64)
+
+
+class AgentSessionRebuildRequest(BaseModel):
+    """Rebuild one existing agent session onto a new resource shape."""
+
+    num_gpus: int = Field(ge=0)
+    memory_gb: int = Field(ge=8)
+    auto_restart: bool = True
+
+
 def _parse_proxy_instance_id(normalized_path: str) -> int | None:
     for prefix in ("/api/instances/", "/api/admin/instances/"):
         if not normalized_path.startswith(prefix):
@@ -183,6 +207,70 @@ def _serialize_cluster_ssh_key(key: ClusterUserSSHKey) -> dict[str, Any]:
         "fingerprint": str(key.fingerprint),
         "created_at": key.created_at.isoformat(),
     }
+
+
+def _extract_node_error_detail(response: httpx.Response) -> str:
+    """Return one readable error message from a node response."""
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+
+    if isinstance(payload, dict):
+        detail = payload.get("detail") or payload.get("message")
+        if isinstance(detail, str) and detail:
+            return detail
+
+    text = response.text.strip()
+    return text or "Node request failed."
+
+
+def _serialize_agent_session(
+    session: ClusterAgentSession,
+    *,
+    instance: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Serialize one durable agent session for API responses."""
+    payload = {
+        "id": int(session.id),
+        "username": str(session.username),
+        "node_id": str(session.node_id),
+        "node_instance_id": int(session.node_instance_id),
+        "container_name": str(session.container_name),
+        "display_name": str(session.display_name),
+        "image_name": str(session.image_name),
+        "desired_num_gpus": int(session.desired_num_gpus),
+        "desired_memory_gb": int(session.desired_memory_gb),
+        "expire_hours": int(session.expire_hours),
+        "instance_status": str(session.instance_status),
+        "last_error": session.last_error,
+        "created_at": session.created_at.isoformat(),
+        "updated_at": session.updated_at.isoformat(),
+    }
+    if instance is not None:
+        payload["instance"] = instance
+    return payload
+
+
+def _inject_vps_access(
+    instance: dict[str, Any],
+    mappings: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Attach FRP/VPS access info to one instance payload when available."""
+    container_name = str(instance.get("container_name") or "")
+    if not container_name:
+        return instance
+
+    access_info = mappings.get(container_name)
+    if not access_info:
+        return instance
+
+    instance["vps_access"] = {
+        "ssh_cmd": f"ssh -p {access_info['vps_port']} root@{config.VPS_PUBLIC_IP}",
+        "vps_port": access_info["vps_port"],
+        "access_url": access_info["access_url"],
+    }
+    return instance
 
 
 def _aggregate_running_usage(instances: list[dict[str, Any]]) -> dict[str, int]:
@@ -549,6 +637,7 @@ async def _request_node_as_user(
     is_admin: bool = False,
     headers: dict[str, str] | None = None,
     params: dict[str, Any] | None = None,
+    json_body: Any | None = None,
     content: bytes | None = None,
 ) -> httpx.Response:
     """Send a node request as the current user and auto-sync the node account on first 401."""
@@ -559,6 +648,7 @@ async def _request_node_as_user(
         url=f"{node_cfg['api']}{path}",
         headers=request_headers,
         params=params,
+        json=json_body,
         content=content,
         timeout=timeout,
     )
@@ -580,6 +670,7 @@ async def _request_node_as_user(
         url=f"{node_cfg['api']}{path}",
         headers=request_headers,
         params=params,
+        json=json_body,
         content=content,
         timeout=timeout,
     )
@@ -758,22 +849,236 @@ async def _fetch_node_instances(
         for inst in instances:
             inst["node_id"] = node_id
             inst["node_name"] = node_cfg["name"]
-
-            # 添加 VPS 访问信息
-            container_name = inst.get("container_name") or inst.get("name", "")
-            if container_name and container_name in mappings:
-                access_info = mappings[container_name]
-                inst["vps_access"] = {
-                    "ssh_cmd": f"ssh -p {access_info['vps_port']} root@{config.VPS_PUBLIC_IP}",
-                    "vps_port": access_info["vps_port"],
-                    "access_url": access_info["access_url"],
-                }
+            _inject_vps_access(inst, mappings)
 
         return instances
 
     except Exception as exc:
         logger.warning("节点 %s 实例请求失败: %s", node_id, exc)
         return []
+
+
+async def _fetch_node_scheduler_capacity(
+    client: httpx.AsyncClient,
+    node_id: str,
+    node_cfg: Dict[str, Any],
+) -> dict[str, Any]:
+    """Return one node's current allocatable capacity for agent scheduling."""
+    result: dict[str, Any] = {
+        "node_id": node_id,
+        "online": False,
+        "gpu_free": 0,
+        "memory_free_gb": None,
+    }
+
+    try:
+        gpu_resp, meta_resp = await asyncio.gather(
+            request_with_node_admin_auth(
+                client,
+                node_id,
+                node_cfg,
+                "GET",
+                "/api/gpus/status",
+                timeout=REQUEST_TIMEOUT,
+            ),
+            client.get(f"{node_cfg['api']}/api/meta", timeout=REQUEST_TIMEOUT),
+        )
+        meta_resp.raise_for_status()
+        gpu_payload = gpu_resp.json()
+        statuses: list[dict[str, Any]]
+        if isinstance(gpu_payload, list):
+            statuses = [gpu for gpu in gpu_payload if isinstance(gpu, dict)]
+        else:
+            statuses = [
+                gpu
+                for gpu in list(gpu_payload.get("gpus") or [])
+                if isinstance(gpu, dict)
+            ]
+        meta = meta_resp.json()
+        if not isinstance(meta, dict):
+            raise ValueError("invalid node meta response")
+        result.update(
+            {
+                "online": True,
+                "gpu_free": sum(1 for gpu in statuses if gpu.get("status") == "free"),
+                "memory_free_gb": int(meta.get("node_memory_free_gb") or 0),
+            }
+        )
+    except Exception as exc:
+        logger.warning("节点 %s 调度容量查询失败: %s", node_id, exc)
+
+    return result
+
+
+async def _choose_agent_session_node(
+    requested_num_gpus: int,
+    requested_memory_gb: int,
+    preferred_node_id: str | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Choose one online node with enough free GPU and memory for a new session."""
+    if preferred_node_id is not None and preferred_node_id not in config.NODES:
+        raise HTTPException(status_code=404, detail="Node not found.")
+
+    node_items = (
+        [(preferred_node_id, config.NODES[preferred_node_id])]
+        if preferred_node_id is not None
+        else list(config.NODES.items())
+    )
+    async with httpx.AsyncClient() as client:
+        capacities = await asyncio.gather(
+            *[
+                _fetch_node_scheduler_capacity(client, node_id, node_cfg)
+                for node_id, node_cfg in node_items
+            ]
+        )
+
+    candidates: list[dict[str, Any]] = []
+    for capacity in capacities:
+        if not capacity.get("online"):
+            continue
+        if int(capacity.get("gpu_free") or 0) < requested_num_gpus:
+            continue
+        memory_free_gb = capacity.get("memory_free_gb")
+        if isinstance(memory_free_gb, int) and memory_free_gb < requested_memory_gb:
+            continue
+        candidates.append(capacity)
+
+    if not candidates:
+        if preferred_node_id is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="Preferred node does not have enough free GPU or memory.",
+            )
+        raise HTTPException(
+            status_code=400,
+            detail="No suitable node currently has enough free GPU and memory.",
+        )
+
+    candidates.sort(
+        key=lambda item: (
+            int(item.get("gpu_free") or 0) - requested_num_gpus,
+            int(item.get("memory_free_gb") or 0) - requested_memory_gb,
+            str(item.get("node_id") or ""),
+        )
+    )
+    node_id = str(candidates[0]["node_id"])
+    return node_id, config.NODES[node_id]
+
+
+def _get_agent_session_for_user(
+    db: Session,
+    session_id: int,
+    username: str,
+) -> ClusterAgentSession:
+    """Load one durable agent session owned by the current user."""
+    session = (
+        db.query(ClusterAgentSession)
+        .filter(
+            ClusterAgentSession.id == session_id,
+            ClusterAgentSession.username == username,
+        )
+        .first()
+    )
+    if session is None:
+        raise HTTPException(status_code=404, detail="Agent session not found.")
+    return session
+
+
+async def _fetch_agent_session_instance(
+    client: httpx.AsyncClient,
+    *,
+    node_id: str,
+    node_cfg: dict[str, Any],
+    instance_id: int,
+    user_token: str,
+    username: str,
+    is_admin: bool,
+) -> dict[str, Any]:
+    """Fetch one current user's node instance by id and attach access info."""
+    response = await _request_node_as_user(
+        client,
+        node_id,
+        node_cfg,
+        "GET",
+        "/api/instances",
+        user_token,
+        username,
+        timeout=REQUEST_TIMEOUT,
+        is_admin=is_admin,
+        headers={"Authorization": f"Bearer {user_token}"},
+    )
+    if response.status_code >= 400:
+        raise HTTPException(
+            status_code=response.status_code,
+            detail=_extract_node_error_detail(response),
+        )
+
+    payload = response.json()
+    instances: List[Any] = payload if isinstance(payload, list) else payload.get("instances", [])
+    from frp_manager import frp_visitor_manager
+
+    mappings = frp_visitor_manager.get_all_mappings()
+    for instance in instances:
+        if int(instance.get("id") or -1) != instance_id:
+            continue
+        instance["node_id"] = node_id
+        instance["node_name"] = node_cfg["name"]
+        return _inject_vps_access(instance, mappings)
+
+    raise HTTPException(status_code=404, detail="Node instance not found.")
+
+
+def _sync_agent_session_from_instance(
+    session: ClusterAgentSession,
+    instance: dict[str, Any],
+) -> None:
+    """Refresh one controller session row from the latest node instance snapshot."""
+    session.node_instance_id = int(instance.get("id") or session.node_instance_id)
+    session.container_name = str(instance.get("container_name") or session.container_name)
+    session.display_name = str(
+        instance.get("display_name") or instance.get("container_name") or session.display_name
+    )
+    session.image_name = str(
+        instance.get("runtime_image_name")
+        or instance.get("base_image_name")
+        or instance.get("image_name")
+        or session.image_name
+    )
+    session.desired_num_gpus = len(list(instance.get("gpu_indices") or []))
+    session.desired_memory_gb = int(instance.get("memory_gb") or session.desired_memory_gb)
+    session.instance_status = str(instance.get("status") or session.instance_status)
+    session.last_error = None
+
+
+def _update_agent_billing_state(
+    db: Session,
+    session: ClusterAgentSession,
+    instance: dict[str, Any],
+    *,
+    reason: str,
+) -> None:
+    """Reconcile central billing state after an agent-managed instance change."""
+    now = datetime.utcnow()
+    settle_and_deactivate_instance(
+        db,
+        node_id=str(session.node_id),
+        node_instance_id=int(session.node_instance_id),
+        reason=reason,
+        status=str(instance.get("status") or "stopped"),
+        settled_at=now,
+    )
+    if str(instance.get("status") or "") != "running":
+        return
+    activate_instance_state(
+        db,
+        node_id=str(session.node_id),
+        node_instance_id=int(session.node_instance_id),
+        username=str(session.username),
+        container_name=str(instance.get("container_name") or session.container_name),
+        gpu_count=len(list(instance.get("gpu_indices") or [])),
+        status="running",
+        activated_at=now,
+    )
 
 
 # ── API 端点 ───────────────────────────────────────────────────────────────
@@ -882,6 +1187,216 @@ async def my_central_quota(
         "gpu_hours_frozen": float(user.gpu_hours_frozen or 0.0),
         "gpu_hours_remaining": gpu_hours_remaining(user),
     }
+
+
+@app.get("/api/agent/sessions")
+async def list_agent_sessions(
+    username: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, list[dict[str, Any]]]:
+    """List durable agent sessions owned by the current user."""
+    sessions = (
+        db.query(ClusterAgentSession)
+        .filter(ClusterAgentSession.username == username)
+        .order_by(ClusterAgentSession.created_at.desc(), ClusterAgentSession.id.desc())
+        .all()
+    )
+    return {"sessions": [_serialize_agent_session(session) for session in sessions]}
+
+
+@app.get("/api/agent/sessions/{session_id}")
+async def get_agent_session(
+    session_id: int,
+    username: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Return one durable agent session owned by the current user."""
+    session = _get_agent_session_for_user(db, session_id, username)
+    return _serialize_agent_session(session)
+
+
+@app.post("/api/agent/sessions")
+async def create_agent_session(
+    payload: AgentSessionCreateRequest,
+    request: Request,
+    user_info: dict[str, Any] = Depends(get_current_user_info),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Create a new node instance plus one durable controller session."""
+    username = str(user_info.get("username") or "")
+    user_token = _extract_bearer_token(request)
+    user_is_admin = bool(user_info.get("is_admin", False))
+    ensure_cluster_user_record(db, username)
+    ensure_gpu_hours_available(db, username, payload.num_gpus)
+
+    node_id, node_cfg = await _choose_agent_session_node(
+        payload.num_gpus,
+        payload.memory_gb,
+        preferred_node_id=payload.node_id,
+    )
+
+    async with httpx.AsyncClient() as client:
+        response = await _request_node_as_user(
+            client,
+            node_id,
+            node_cfg,
+            "POST",
+            "/api/instances",
+            user_token,
+            username,
+            timeout=_proxy_timeout_seconds("/api/instances"),
+            is_admin=user_is_admin,
+            headers={"Authorization": f"Bearer {user_token}"},
+            json_body={
+                "num_gpus": payload.num_gpus,
+                "memory_gb": payload.memory_gb,
+                "image": payload.image,
+                "expire_hours": payload.expire_hours,
+                "display_name": payload.display_name,
+            },
+        )
+        if response.status_code >= 400:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=_extract_node_error_detail(response),
+            )
+        instance = response.json()
+        if not isinstance(instance, dict):
+            raise HTTPException(status_code=502, detail="Invalid node create response.")
+        instance["node_id"] = node_id
+        instance["node_name"] = node_cfg["name"]
+        from frp_manager import frp_visitor_manager
+
+        _inject_vps_access(instance, frp_visitor_manager.get_all_mappings())
+
+    session = ClusterAgentSession(
+        username=username,
+        node_id=node_id,
+        node_instance_id=int(instance.get("id") or 0),
+        container_name=str(instance.get("container_name") or ""),
+        display_name=str(
+            instance.get("display_name") or instance.get("container_name") or ""
+        ),
+        image_name=str(
+            instance.get("runtime_image_name")
+            or instance.get("base_image_name")
+            or instance.get("image_name")
+            or payload.image
+        ),
+        desired_num_gpus=payload.num_gpus,
+        desired_memory_gb=payload.memory_gb,
+        expire_hours=payload.expire_hours,
+        instance_status=str(instance.get("status") or "unknown"),
+    )
+    db.add(session)
+    activate_instance_state(
+        db,
+        node_id=node_id,
+        node_instance_id=int(instance.get("id") or 0),
+        username=username,
+        container_name=str(instance.get("container_name") or ""),
+        gpu_count=len(list(instance.get("gpu_indices") or [])),
+        status=str(instance.get("status") or "running"),
+    )
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Failed to persist agent session.") from exc
+    db.refresh(session)
+    return _serialize_agent_session(session, instance=instance)
+
+
+@app.post("/api/agent/sessions/{session_id}/rebuild")
+async def rebuild_agent_session(
+    session_id: int,
+    payload: AgentSessionRebuildRequest,
+    request: Request,
+    user_info: dict[str, Any] = Depends(get_current_user_info),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Rebuild one agent session and optionally restart it on the node."""
+    username = str(user_info.get("username") or "")
+    user_token = _extract_bearer_token(request)
+    user_is_admin = bool(user_info.get("is_admin", False))
+    session = _get_agent_session_for_user(db, session_id, username)
+    ensure_gpu_hours_available(db, username, payload.num_gpus)
+
+    node_cfg = config.NODES.get(str(session.node_id))
+    if node_cfg is None:
+        raise HTTPException(status_code=404, detail="Node not found.")
+
+    rebuild_path = f"/api/instances/{int(session.node_instance_id)}/rebuild"
+    restart_path = f"/api/instances/{int(session.node_instance_id)}/restart"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            rebuild_response = await _request_node_as_user(
+                client,
+                str(session.node_id),
+                node_cfg,
+                "POST",
+                rebuild_path,
+                user_token,
+                username,
+                timeout=_proxy_timeout_seconds(rebuild_path),
+                is_admin=user_is_admin,
+                headers={"Authorization": f"Bearer {user_token}"},
+                json_body={
+                    "num_gpus": payload.num_gpus,
+                    "memory_gb": payload.memory_gb,
+                },
+            )
+            if rebuild_response.status_code >= 400:
+                raise HTTPException(
+                    status_code=rebuild_response.status_code,
+                    detail=_extract_node_error_detail(rebuild_response),
+                )
+
+            rebuild_instance = rebuild_response.json()
+            if not isinstance(rebuild_instance, dict):
+                raise HTTPException(status_code=502, detail="Invalid node rebuild response.")
+
+            if payload.auto_restart and str(rebuild_instance.get("status") or "") != "running":
+                restart_response = await _request_node_as_user(
+                    client,
+                    str(session.node_id),
+                    node_cfg,
+                    "POST",
+                    restart_path,
+                    user_token,
+                    username,
+                    timeout=_proxy_timeout_seconds(restart_path),
+                    is_admin=user_is_admin,
+                    headers={"Authorization": f"Bearer {user_token}"},
+                )
+                if restart_response.status_code >= 400:
+                    raise HTTPException(
+                        status_code=restart_response.status_code,
+                        detail=_extract_node_error_detail(restart_response),
+                    )
+
+            instance = await _fetch_agent_session_instance(
+                client,
+                node_id=str(session.node_id),
+                node_cfg=node_cfg,
+                instance_id=int(session.node_instance_id),
+                user_token=user_token,
+                username=username,
+                is_admin=user_is_admin,
+            )
+    except HTTPException as exc:
+        session.last_error = str(exc.detail)
+        db.commit()
+        raise
+
+    _sync_agent_session_from_instance(session, instance)
+    session.desired_num_gpus = payload.num_gpus
+    session.desired_memory_gb = payload.memory_gb
+    _update_agent_billing_state(db, session, instance, reason="agent_rebuild")
+    db.commit()
+    db.refresh(session)
+    return _serialize_agent_session(session, instance=instance)
 
 
 @app.get("/api/ssh-keys")
