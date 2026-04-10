@@ -15,6 +15,8 @@ export interface GpuInfo {
   allocated_to: string | null
   name?: string
   memory_total_mb?: number
+  power_draw_w?: number | null
+  power_limit_w?: number | null
 }
 
 export interface NodeStatus {

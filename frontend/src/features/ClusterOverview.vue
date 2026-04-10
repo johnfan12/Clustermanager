@@ -49,17 +49,22 @@
             <tr v-if="expandedNodes.has(node.node_id)" class="expand-row">
               <td colspan="5" class="expand-cell">
                 <div v-if="node.gpus && node.gpus.length" class="gpu-grid">
-                  <span
+                  <div
                     v-for="gpu in node.gpus"
                     :key="gpu.index"
                     :class="['gpu-chip', gpu.status === 'free' ? 'free' : 'used']"
                     :title="gpu.name || `GPU ${gpu.index}`"
                   >
-                    GPU {{ gpu.index }}: {{ gpu.status === 'free' ? '空闲' : (gpu.allocated_to || '占用中') }}
-                    <span v-if="gpu.memory_total_mb" class="gpu-mem">
-                      ({{ Math.round(gpu.memory_total_mb / 1024) }}GB)
-                    </span>
-                  </span>
+                    <div class="gpu-main-line">
+                      GPU {{ gpu.index }}: {{ gpu.status === 'free' ? '空闲' : (gpu.allocated_to || '占用中') }}
+                      <span v-if="gpu.memory_total_mb" class="gpu-mem">
+                        ({{ Math.round(gpu.memory_total_mb / 1024) }}GB)
+                      </span>
+                    </div>
+                    <div v-if="hasPowerInfo(gpu)" class="gpu-power-line">
+                      {{ formatPower(gpu.power_draw_w) }}/{{ formatPower(gpu.power_limit_w) }}
+                    </div>
+                  </div>
                 </div>
                 <span v-else class="muted">无 GPU 详情数据</span>
               </td>
@@ -73,7 +78,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import type { NodeStatus, ClusterSummary } from '@/stores/cluster'
+import type { NodeStatus, ClusterSummary, GpuInfo } from '@/stores/cluster'
 
 const props = defineProps<{
   nodes: NodeStatus[]
@@ -94,6 +99,15 @@ function toggleExpand(nodeId: string) {
   } else {
     expandedNodes.value.add(nodeId)
   }
+}
+
+function hasPowerInfo(gpu: GpuInfo) {
+  return typeof gpu.power_draw_w === 'number' && typeof gpu.power_limit_w === 'number'
+}
+
+function formatPower(value: number | null | undefined) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return '—'
+  return `${Math.round(value)}W`
 }
 
 </script>
@@ -190,12 +204,16 @@ tbody tr:last-child td { border-bottom: none; }
 }
 
 .gpu-chip {
-  padding: 3px 10px;
+  padding: 6px 10px;
   border-radius: var(--radius-sm);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 180px;
 }
 
 .gpu-chip.used {
@@ -214,6 +232,17 @@ tbody tr:last-child td { border-bottom: none; }
   margin-left: 4px;
   opacity: 0.8;
   font-size: var(--font-size-xs);
+}
+
+.gpu-main-line {
+  line-height: 1.35;
+}
+
+.gpu-power-line {
+  font-size: var(--font-size-xs);
+  opacity: 0.82;
+  line-height: 1.25;
+  white-space: nowrap;
 }
 
 /* Status */
