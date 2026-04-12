@@ -109,7 +109,7 @@
                   class="op-btn"
                   :disabled="inst.status !== 'running' || isOperationLocked(inst)"
                   @click="handleAction('renew', inst)"
-                >续期</button>
+                >定时</button>
                 <button
                   class="op-btn"
                   :disabled="isOperationLocked(inst)"

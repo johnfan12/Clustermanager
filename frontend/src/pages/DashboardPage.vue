@@ -251,10 +251,10 @@
       </template>
     </AppModal>
 
-    <!-- Renew Modal -->
+    <!-- Timer Modal -->
     <AppModal
       v-model:visible="modals.renew"
-      title="续期"
+      title="定时"
       size="sm"
     >
       <form class="form" @submit.prevent="handleRenew">
@@ -286,7 +286,7 @@
           :disabled="!canSubmitRenew"
           @click="handleRenew"
         >
-          确认续期
+          确认定时
         </AppButton>
       </template>
     </AppModal>
@@ -1124,7 +1124,7 @@ async function handleRestartConfirm() {
 async function handleRenew() {
   if (!selectedInstance.value) return
   if (!canSubmitRenew.value) {
-    toast.error('请输入 1-72 小时的续期时长')
+    toast.error('请输入 1-72 小时的定时时长')
     return
   }
 
@@ -1140,7 +1140,7 @@ async function handleRenew() {
     modals.renew = false
     await clusterStore.fetchAll()
   } catch (e: any) {
-    toast.error(e.message || '续期失败')
+    toast.error(e.message || '设置定时失败')
   } finally {
     loading.renew = false
   }
