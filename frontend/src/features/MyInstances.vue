@@ -18,10 +18,10 @@
             <th>SSH 连接</th>
             <th>密码</th>
             <th>
-              <span class="expire-heading">
+              <span class="auto-stop-heading">
                 自动停止
                 <span
-                  class="expire-help"
+                  class="auto-stop-help"
                   data-tooltip="实例运行时会按计时器自动停止；手动停止后计时器立即结束，实例不会被删除。"
                   aria-label="实例运行时会按计时器自动停止；手动停止后计时器立即结束，实例不会被删除。"
                   tabindex="0"
@@ -87,9 +87,9 @@
               <span v-else>—</span>
             </td>
             <td>
-              <div :class="{ 'expire-warning': isAutoStopSoon(inst) }">
+              <div :class="{ 'auto-stop-warning': isAutoStopSoon(inst) }">
                 <div>{{ autoStopLabel(inst) }}</div>
-                <div class="countdown">{{ autoStopCountdownText(inst) }}</div>
+                <div v-if="inst.status === 'running'" class="countdown">{{ autoStopCountdownText(inst) }}</div>
               </div>
             </td>
             <td>
@@ -228,12 +228,6 @@ function autoStopAt(inst: Instance): string | null {
   return String(inst.auto_stop_at || inst.expire_at || '') || null
 }
 
-function autoStopHours(inst: Instance): number {
-  const raw = Number(inst.auto_stop_hours ?? 6)
-  if (!Number.isFinite(raw) || raw < 1) return 6
-  return raw
-}
-
 function autoStopTimestamp(value: string): number {
   const hasTimezone = /[zZ]|[+-]\d{2}:?\d{2}$/.test(value)
   return new Date(hasTimezone ? value : `${value}Z`).getTime()
@@ -245,9 +239,6 @@ function autoStopLabel(inst: Instance): string {
 }
 
 function autoStopCountdownText(inst: Instance): string {
-  if (inst.status !== 'running') {
-    return `启动时重新选择，默认 ${autoStopHours(inst)} 小时`
-  }
   const countdown = autoStopCountdown(autoStopAt(inst))
   return countdown ? `剩余 ${countdown}` : '计时中'
 }
@@ -508,12 +499,12 @@ tbody tr:last-child td { border-bottom: none; }
 
 .pwd-toggle:hover { color: var(--color-primary); }
 
-/* Expire warning */
-.expire-warning {
+/* Auto-stop warning */
+.auto-stop-warning {
   color: var(--color-danger);
 }
 
-.expire-warning .countdown {
+.auto-stop-warning .countdown {
   font-weight: var(--font-weight-medium);
 }
 
@@ -523,14 +514,14 @@ tbody tr:last-child td { border-bottom: none; }
   margin-top: 2px;
 }
 
-.expire-heading {
+.auto-stop-heading {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   white-space: nowrap;
 }
 
-.expire-help {
+.auto-stop-help {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -546,8 +537,8 @@ tbody tr:last-child td { border-bottom: none; }
   cursor: default;
 }
 
-.expire-help::before,
-.expire-help::after {
+.auto-stop-help::before,
+.auto-stop-help::after {
   position: absolute;
   left: 50%;
   opacity: 0;
@@ -556,7 +547,7 @@ tbody tr:last-child td { border-bottom: none; }
   z-index: 10;
 }
 
-.expire-help::before {
+.auto-stop-help::before {
   content: '';
   top: calc(100% + 3px);
   transform: translateX(-50%) translateY(-2px);
@@ -564,7 +555,7 @@ tbody tr:last-child td { border-bottom: none; }
   border-bottom-color: var(--color-text);
 }
 
-.expire-help::after {
+.auto-stop-help::after {
   content: attr(data-tooltip);
   top: calc(100% + 12px);
   width: max-content;
@@ -581,16 +572,16 @@ tbody tr:last-child td { border-bottom: none; }
   transform: translateX(-50%) translateY(-2px);
 }
 
-.expire-help:hover,
-.expire-help:focus-visible {
+.auto-stop-help:hover,
+.auto-stop-help:focus-visible {
   border-color: var(--color-primary);
   color: var(--color-primary);
 }
 
-.expire-help:hover::before,
-.expire-help:hover::after,
-.expire-help:focus-visible::before,
-.expire-help:focus-visible::after {
+.auto-stop-help:hover::before,
+.auto-stop-help:hover::after,
+.auto-stop-help:focus-visible::before,
+.auto-stop-help:focus-visible::after {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }

@@ -30,9 +30,6 @@ export function autoStopCountdown(value?: string | null): string {
   return `${hours}小时`
 }
 
-export const formatExpire = formatAutoStopTime
-export const expireCountdown = autoStopCountdown
-
 /** HTML 转义 */
 export function escHtml(value: unknown): string {
   const div = document.createElement('div')
