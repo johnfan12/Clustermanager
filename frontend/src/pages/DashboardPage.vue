@@ -163,18 +163,18 @@
             </div>
           </div>
           <div class="field">
-            <label>到期时间（小时）</label>
+            <label>自动停止（小时）</label>
             <input
-              v-model.number="createForm.expireHours"
+              v-model.number="createForm.autoStopHours"
               type="number"
               min="1"
-              max="168"
+              max="72"
               step="1"
               required
-              placeholder="例如：36"
+              placeholder="例如：6"
             />
             <div class="field-hint">
-              请输入 1-168 小时；到期后自动关机，实例不会被删除。
+              默认 6 小时，可调整 1-72 小时；到时自动停止，实例不会被删除。
             </div>
           </div>
           <div class="form-hint">
@@ -211,31 +211,71 @@
       </template>
     </AppModal>
 
+    <!-- Restart Modal -->
+    <AppModal
+      v-model:visible="modals.restart"
+      title="重启实例"
+      size="sm"
+    >
+      <form class="form" @submit.prevent="handleRestartConfirm">
+        <div class="form-hint">
+          为实例 <strong>{{ instanceDisplayName(selectedInstance) }}</strong> 选择新的自动停止时长
+          <span v-if="showTechnicalName(selectedInstance)">（系统名：{{ selectedInstance?.container_name }}）</span>
+        </div>
+        <div class="field">
+          <label>自动停止时长（小时）</label>
+          <input
+            v-model.number="restartForm.hours"
+            type="number"
+            min="1"
+            max="72"
+            step="1"
+            required
+            placeholder="例如：6"
+          />
+        </div>
+        <div class="form-hint">
+          每次重启都会重新开始计时；手动停止后，当前计时器会立即结束。
+        </div>
+      </form>
+      <template #footer>
+        <AppButton variant="secondary" @click="modals.restart = false">取消</AppButton>
+        <AppButton
+          variant="primary"
+          :loading="loading.restart"
+          :disabled="!canSubmitRestart"
+          @click="handleRestartConfirm"
+        >
+          确认重启
+        </AppButton>
+      </template>
+    </AppModal>
+
     <!-- Renew Modal -->
     <AppModal
       v-model:visible="modals.renew"
-      title="实例续期"
+      title="续期"
       size="sm"
     >
       <form class="form" @submit.prevent="handleRenew">
         <div class="form-hint">
-          为实例 <strong>{{ instanceDisplayName(selectedInstance) }}</strong> 续期
+          为实例 <strong>{{ instanceDisplayName(selectedInstance) }}</strong> 重置自动停止计时器
           <span v-if="showTechnicalName(selectedInstance)">（系统名：{{ selectedInstance?.container_name }}）</span>
         </div>
         <div class="field">
-          <label>续期时长（小时）</label>
+          <label>重置为（小时）</label>
           <input
             v-model.number="renewForm.hours"
             type="number"
             min="1"
-            max="168"
+            max="72"
             step="1"
             required
-            placeholder="例如：12"
+            placeholder="例如：24"
           />
         </div>
         <div class="form-hint">
-          可续期 1-168 小时；仅在实例剩余时间少于 7 天时可续期。
+          请输入 1-72 小时；会直接把当前剩余时间重置为所选值，不是在原剩余时间上累加。
         </div>
       </form>
       <template #footer>
@@ -525,6 +565,7 @@ const gpuHoursText = computed(() => {
 // Modal states
 const modals = reactive({
   create: false,
+  restart: false,
   renew: false,
   rebuild: false,
   delete: false,
@@ -535,6 +576,7 @@ const modals = reactive({
 // Loading states
 const loading = reactive({
   create: false,
+  restart: false,
   renew: false,
   rebuild: false,
   delete: false,
@@ -554,15 +596,19 @@ const createForm = reactive({
   numGpus: 1,
   memoryGb: 16,
   image: '',
-  expireHours: 168
+  autoStopHours: 6
 })
 const createImages = ref<NodeImage[]>([])
 const createImagesLoading = ref(false)
 
 const createStep = ref(1)
 
+const restartForm = reactive({
+  hours: 6
+})
+
 const renewForm = reactive({
-  hours: 24
+  hours: 6
 })
 
 const rebuildForm = reactive({
@@ -734,8 +780,12 @@ const canSubmitCreate = computed(() => {
       && createForm.image
       && availableGpuOptions.value.includes(createForm.numGpus)
       && availableMemoryOptions.value.includes(createForm.memoryGb)
-      && isValidHourValue(createForm.expireHours)
+      && isValidHourValue(createForm.autoStopHours)
   )
+})
+
+const canSubmitRestart = computed(() => {
+  return Boolean(selectedInstance.value && isValidHourValue(restartForm.hours))
 })
 
 const canSubmitRenew = computed(() => {
@@ -842,8 +892,21 @@ watch(() => modals.create, (visible) => {
     createStep.value = 1
     createForm.displayName = ''
     createForm.image = ''
+    createForm.autoStopHours = 6
     createImages.value = []
     createImagesLoading.value = false
+  }
+})
+
+watch(() => modals.restart, (visible) => {
+  if (!visible) {
+    restartForm.hours = 6
+  }
+})
+
+watch(() => modals.renew, (visible) => {
+  if (!visible) {
+    renewForm.hours = 6
   }
 })
 
@@ -877,7 +940,7 @@ function formatDateTime(value?: string | null): string {
 
 function isValidHourValue(value: unknown): boolean {
   const hours = Number(value)
-  return Number.isInteger(hours) && hours >= 1 && hours <= 168
+  return Number.isInteger(hours) && hours >= 1 && hours <= 72
 }
 
 function openCreateModal() {
@@ -887,6 +950,7 @@ function openCreateModal() {
   }
   createStep.value = 1
   createForm.displayName = ''
+  createForm.autoStopHours = 6
   const nextNodeId = availableNodes.value[0]?.node_id || ''
   const shouldReloadNodeResources = createForm.nodeId === nextNodeId
   createForm.nodeId = nextNodeId
@@ -940,10 +1004,11 @@ function handleInstanceAction(action: string, instance: Instance) {
       handleStop(instance)
       break
     case 'restart':
-      handleRestart(instance)
+      restartForm.hours = 6
+      modals.restart = true
       break
     case 'renew':
-      renewForm.hours = 24
+      renewForm.hours = 6
       modals.renew = true
       break
     case 'rebuild':
@@ -993,13 +1058,13 @@ async function handleCreate() {
 
   loading.create = true
   try {
-    const expireHours = Number(createForm.expireHours)
+    const autoStopHours = Number(createForm.autoStopHours)
     const result = await clusterStore.createInstance(createForm.nodeId, {
       display_name: createForm.displayName.trim() || undefined,
       num_gpus: createForm.numGpus,
       memory_gb: createForm.memoryGb,
       image: createForm.image,
-      expire_hours: expireHours
+      auto_stop_hours: autoStopHours
     })
     toast.success('实例创建成功')
     modals.create = false
@@ -1030,33 +1095,48 @@ async function handleStop(instance: Instance) {
   }
 }
 
-async function handleRestart(instance: Instance) {
+async function handleRestartConfirm() {
+  if (!selectedInstance.value) return
+  if (!canSubmitRestart.value) {
+    toast.error('请输入 1-72 小时的自动停止时长')
+    return
+  }
+
+  loading.restart = true
   try {
-    await clusterStore.restartInstance(instance.node_id, Number(instance.id))
+    const autoStopHours = Number(restartForm.hours)
+    await clusterStore.restartInstance(
+      selectedInstance.value.node_id,
+      Number(selectedInstance.value.id),
+      autoStopHours
+    )
     toast.success('实例已重启')
+    modals.restart = false
     await clusterStore.fetchAll()
     await refreshGpuHours()
   } catch (e: any) {
     toast.error(e.message || '重启失败')
+  } finally {
+    loading.restart = false
   }
 }
 
 async function handleRenew() {
   if (!selectedInstance.value) return
   if (!canSubmitRenew.value) {
-    toast.error('请输入 1-168 小时的续期时长')
+    toast.error('请输入 1-72 小时的续期时长')
     return
   }
 
   loading.renew = true
   try {
-    const extendHours = Number(renewForm.hours)
+    const resetHours = Number(renewForm.hours)
     await clusterStore.renewInstance(
       selectedInstance.value.node_id,
       Number(selectedInstance.value.id),
-      extendHours
+      resetHours
     )
-    toast.success(`实例已续期 ${extendHours} 小时`)
+    toast.success(`自动停止计时器已重置为 ${resetHours} 小时`)
     modals.renew = false
     await clusterStore.fetchAll()
   } catch (e: any) {

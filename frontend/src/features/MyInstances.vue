@@ -19,11 +19,11 @@
             <th>密码</th>
             <th>
               <span class="expire-heading">
-                到期时间
+                自动停止
                 <span
                   class="expire-help"
-                  data-tooltip="到期时间为关机时间，实例不删除永久保留。"
-                  aria-label="到期时间为关机时间，实例不删除永久保留。"
+                  data-tooltip="实例运行时会按计时器自动停止；手动停止后计时器立即结束，实例不会被删除。"
+                  aria-label="实例运行时会按计时器自动停止；手动停止后计时器立即结束，实例不会被删除。"
                   tabindex="0"
                 >!</span>
               </span>
@@ -87,9 +87,9 @@
               <span v-else>—</span>
             </td>
             <td>
-              <div :class="{ 'expire-warning': isExpiringSoon(inst.expire_at) }">
-                <div>{{ formatExpire(inst.expire_at) }}</div>
-                <div class="countdown">剩余 {{ expireCountdown(inst.expire_at) }}</div>
+              <div :class="{ 'expire-warning': isAutoStopSoon(inst) }">
+                <div>{{ autoStopLabel(inst) }}</div>
+                <div class="countdown">{{ autoStopCountdownText(inst) }}</div>
               </div>
             </td>
             <td>
@@ -106,7 +106,7 @@
                 >重启</button>
                 <button
                   class="op-btn"
-                  :disabled="isOperationLocked(inst)"
+                  :disabled="inst.status !== 'running' || isOperationLocked(inst)"
                   @click="handleAction('renew', inst)"
                 >续期</button>
                 <button
@@ -136,7 +136,7 @@
 <script setup lang="ts">
 import { computed, reactive } from 'vue'
 import type { Instance, NodeStatus } from '@/stores/cluster'
-import { formatExpire, expireCountdown } from '@/shared/utils/format'
+import { autoStopCountdown, formatAutoStopTime } from '@/shared/utils/format'
 import { copyToClipboard } from '@/shared/utils/clipboard'
 import { useToastStore } from '@/stores/toast'
 
@@ -224,9 +224,38 @@ function togglePassword(idx: number) {
   }
 }
 
-function isExpiringSoon(expireAt?: string | null): boolean {
-  if (!expireAt) return false
-  const diff = new Date(expireAt).getTime() - Date.now()
+function autoStopAt(inst: Instance): string | null {
+  return String(inst.auto_stop_at || inst.expire_at || '') || null
+}
+
+function autoStopHours(inst: Instance): number {
+  const raw = Number(inst.auto_stop_hours ?? 6)
+  if (!Number.isFinite(raw) || raw < 1) return 6
+  return raw
+}
+
+function autoStopTimestamp(value: string): number {
+  const hasTimezone = /[zZ]|[+-]\d{2}:?\d{2}$/.test(value)
+  return new Date(hasTimezone ? value : `${value}Z`).getTime()
+}
+
+function autoStopLabel(inst: Instance): string {
+  if (inst.status !== 'running') return '已停止'
+  return formatAutoStopTime(autoStopAt(inst))
+}
+
+function autoStopCountdownText(inst: Instance): string {
+  if (inst.status !== 'running') {
+    return `启动时重新选择，默认 ${autoStopHours(inst)} 小时`
+  }
+  const countdown = autoStopCountdown(autoStopAt(inst))
+  return countdown ? `剩余 ${countdown}` : '计时中'
+}
+
+function isAutoStopSoon(inst: Instance): boolean {
+  const value = autoStopAt(inst)
+  if (inst.status !== 'running' || !value) return false
+  const diff = autoStopTimestamp(value) - Date.now()
   return diff > 0 && diff < 24 * 3600 * 1000 // less than 24h
 }
 

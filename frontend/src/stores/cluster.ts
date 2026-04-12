@@ -44,6 +44,7 @@ export interface VpsAccess {
 }
 
 export interface Instance {
+  id: number
   node_id: string
   node_name: string
   container_name: string
@@ -61,6 +62,9 @@ export interface Instance {
   ssh_cmd?: string
   vps_access: VpsAccess | null
   ssh_password: string
+  auto_stop_hours?: number
+  auto_stop_at?: string | null
+  auto_stop_seconds?: number | null
   expire_at: string | null
   [key: string]: unknown
 }
@@ -132,7 +136,7 @@ export const useClusterStore = defineStore('cluster', () => {
       num_gpus: number
       memory_gb: number
       image: string
-      expire_hours: number
+      auto_stop_hours: number
       display_name?: string
     }
   ) {
@@ -147,17 +151,19 @@ export const useClusterStore = defineStore('cluster', () => {
     await api.post(`/api/proxy/${nodeId}/api/instances/${instanceId}/stop`)
   }
 
-  async function restartInstance(nodeId: string, instanceId: number) {
-    await api.post(`/api/proxy/${nodeId}/api/instances/${instanceId}/restart`)
+  async function restartInstance(nodeId: string, instanceId: number, autoStopHours: number) {
+    await api.post(`/api/proxy/${nodeId}/api/instances/${instanceId}/restart`, {
+      auto_stop_hours: autoStopHours
+    })
   }
 
   async function deleteInstance(nodeId: string, instanceId: number) {
     await api.delete(`/api/proxy/${nodeId}/api/instances/${instanceId}`)
   }
 
-  async function renewInstance(nodeId: string, instanceId: number, extendHours: number) {
+  async function renewInstance(nodeId: string, instanceId: number, resetHours: number) {
     await api.post(`/api/proxy/${nodeId}/api/instances/${instanceId}/renew`, {
-      extend_hours: extendHours
+      reset_hours: resetHours
     })
   }
 
