@@ -147,6 +147,7 @@ function formatGpuHours(value: number): string {
 function statusText(status: string): string {
   if (status === 'running') return '运行中'
   if (status === 'stopped') return '已停止'
+  if (status === 'rebuilding') return '重建中'
   return '异常'
 }
 
@@ -400,6 +401,11 @@ onMounted(() => {
 .status-badge.stopped {
   background: var(--color-surface);
   color: var(--color-text-muted);
+}
+
+.status-badge.rebuilding {
+  background: #fff3d6;
+  color: #9a6b00;
 }
 
 .status-badge.error {

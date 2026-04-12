@@ -29,7 +29,7 @@
 
         <!-- My Instances Section -->
         <MyInstances
-          :instances="clusterStore.instances"
+          :instances="displayInstances"
           :nodes="clusterStore.nodes"
           :pending-ssh-instances="pendingSshInstances"
           @action="handleInstanceAction"
@@ -581,6 +581,7 @@ const sshKeyForm = reactive({
 
 // SSH polling state
 const pendingSshInstances = ref<Set<string>>(new Set())
+const pendingRebuildInstances = ref<Set<string>>(new Set())
 let sshPollTimer: ReturnType<typeof setInterval> | null = null
 let createTransitionTimer: ReturnType<typeof setTimeout> | null = null
 let createNodeLoadToken = 0
@@ -616,12 +617,49 @@ const selectedCreateNode = computed(() => {
   return clusterStore.nodes.find((n: NodeStatus) => n.node_id === createForm.nodeId) || null
 })
 
+const displayInstances = computed(() => {
+  return clusterStore.instances.map((instance) => {
+    if (!isInstanceRebuilding(instance)) return instance
+    return {
+      ...instance,
+      status: 'rebuilding' as const
+    }
+  })
+})
+
+const serverRebuildingInstanceKeys = computed(() => {
+  const keys = new Set<string>()
+  clusterStore.instances.forEach((instance) => {
+    if (instance.status !== 'rebuilding') return
+    const key = instanceOperationKey(instance)
+    if (key) {
+      keys.add(key)
+    }
+  })
+  return keys
+})
+
 function instanceDisplayName(instance: Instance | null | undefined): string {
   return String(instance?.display_name || instance?.container_name || '')
 }
 
 function showTechnicalName(instance: Instance | null | undefined): boolean {
   return Boolean(instance?.display_name && instance.display_name !== instance.container_name)
+}
+
+function instanceOperationKey(instance: Instance | null | undefined): string {
+  if (!instance?.node_id || instance.id == null) return ''
+  return `${instance.node_id}:${String(instance.id)}`
+}
+
+function isInstanceRebuilding(instance: Instance | null | undefined): boolean {
+  if (!instance) return false
+  if (instance.status === 'rebuilding') return true
+  const key = instanceOperationKey(instance)
+  return key !== '' && (
+    pendingRebuildInstances.value.has(key)
+    || serverRebuildingInstanceKeys.value.has(key)
+  )
 }
 
 const availableGpuOptions = computed(() => {
@@ -891,6 +929,10 @@ function handleCreatePrev() {
 }
 
 function handleInstanceAction(action: string, instance: Instance) {
+  if (isInstanceRebuilding(instance)) {
+    toast.warning('实例正在重建中，请等待节点完成后再操作')
+    return
+  }
   selectedInstance.value = instance
 
   switch (action) {
@@ -918,6 +960,10 @@ function handleInstanceAction(action: string, instance: Instance) {
 }
 
 async function openRebuildModal(instance: Instance) {
+  if (isInstanceRebuilding(instance)) {
+    toast.warning('实例正在重建中，请等待节点完成后再试')
+    return
+  }
   selectedInstance.value = instance
   rebuildForm.numGpus = instance.gpu_indices?.length ?? 0
   rebuildForm.memoryGb = instance.memory_gb || 32
@@ -1022,13 +1068,22 @@ async function handleRenew() {
 
 async function handleRebuild() {
   if (!selectedInstance.value) return
+  if (isInstanceRebuilding(selectedInstance.value)) {
+    toast.warning('实例正在重建中，请等待节点完成后再试')
+    return
+  }
   if (!canSubmitRebuild.value) {
     toast.error('当前节点资源限制下，该配置不可用')
     return
   }
 
   loading.rebuild = true
+  const rebuildKey = instanceOperationKey(selectedInstance.value)
   try {
+    if (rebuildKey) {
+      pendingRebuildInstances.value.add(rebuildKey)
+    }
+    modals.rebuild = false
     await clusterStore.rebuildInstance(
       selectedInstance.value.node_id,
       Number(selectedInstance.value.id),
@@ -1045,6 +1100,9 @@ async function handleRebuild() {
     toast.error(e.message || '配置变更失败')
   } finally {
     loading.rebuild = false
+    if (rebuildKey) {
+      pendingRebuildInstances.value.delete(rebuildKey)
+    }
   }
 }
 

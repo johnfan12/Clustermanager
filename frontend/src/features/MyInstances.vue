@@ -53,6 +53,12 @@
                   <span>{{ statusText(inst.status) }}</span>
                 </span>
                 <div
+                  v-if="inst.status === 'rebuilding'"
+                  class="power-hint rebuilding-hint"
+                >
+                  等待节点完成重建
+                </div>
+                <div
                   v-if="inst.status === 'stopped'"
                   :class="powerHintClass(inst)"
                 >
@@ -90,28 +96,32 @@
               <div class="ops">
                 <button
                   class="op-btn"
-                  :disabled="inst.status !== 'running'"
+                  :disabled="inst.status !== 'running' || isOperationLocked(inst)"
                   @click="handleAction('stop', inst)"
                 >停止</button>
                 <button
                   class="op-btn"
-                  :disabled="inst.status === 'running'"
+                  :disabled="inst.status === 'running' || isOperationLocked(inst)"
                   @click="handleAction('restart', inst)"
                 >重启</button>
                 <button
                   class="op-btn"
+                  :disabled="isOperationLocked(inst)"
                   @click="handleAction('renew', inst)"
                 >续期</button>
                 <button
                   class="op-btn"
+                  :disabled="isOperationLocked(inst)"
                   @click="handleAction('rebuild', inst)"
                 >变更配置</button>
                 <button
                   class="op-btn"
+                  :disabled="isOperationLocked(inst)"
                   @click="handleAction('logs', inst)"
                 >日志</button>
                 <button
                   class="op-btn danger"
+                  :disabled="isOperationLocked(inst)"
                   @click="handleAction('delete', inst)"
                 >删除</button>
               </div>
@@ -174,13 +184,19 @@ function sshCommand(inst: Instance): string {
 function statusClass(status: string): string {
   if (status === 'running') return 'status-running'
   if (status === 'stopped') return 'status-stopped'
+  if (status === 'rebuilding') return 'status-rebuilding'
   return 'status-error'
 }
 
 function statusText(status: string): string {
   if (status === 'running') return '运行'
   if (status === 'stopped') return '停止'
+  if (status === 'rebuilding') return '重建中'
   return '异常'
+}
+
+function isOperationLocked(inst: Instance): boolean {
+  return inst.status === 'rebuilding'
 }
 
 function canStartInstance(inst: Instance): boolean {
@@ -331,6 +347,7 @@ tbody tr:last-child td { border-bottom: none; }
 
 .status-running,
 .status-stopped,
+.status-rebuilding,
 .status-error {
   display: inline-flex;
   align-items: center;
@@ -345,6 +362,10 @@ tbody tr:last-child td { border-bottom: none; }
 
 .status-stopped {
   color: var(--color-danger);
+}
+
+.status-rebuilding {
+  color: var(--color-warning, #9a6b00);
 }
 
 .status-error {
@@ -371,6 +392,10 @@ tbody tr:last-child td { border-bottom: none; }
 
 .power-hint.cannot-start {
   color: var(--color-danger);
+}
+
+.rebuilding-hint {
+  color: var(--color-warning, #9a6b00);
 }
 
 /* SSH cell */
