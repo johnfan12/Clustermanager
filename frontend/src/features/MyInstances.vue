@@ -14,16 +14,15 @@
             <th>GPU 数</th>
             <th>内存</th>
             <th>镜像</th>
-            <th>状态</th>
             <th>SSH 连接</th>
             <th>密码</th>
             <th>
               <span class="auto-stop-heading">
-                自动停止
+                状态
                 <span
                   class="auto-stop-help"
-                  data-tooltip="实例运行时会按计时器自动停止；手动停止后计时器立即结束，实例不会被删除。"
-                  aria-label="实例运行时会按计时器自动停止；手动停止后计时器立即结束，实例不会被删除。"
+                  data-tooltip="运行中的实例会显示自动停止剩余时间；手动停止后计时器立即结束，实例不会被删除。"
+                  aria-label="运行中的实例会显示自动停止剩余时间；手动停止后计时器立即结束，实例不会被删除。"
                   tabindex="0"
                 >!</span>
               </span>
@@ -33,7 +32,7 @@
         </thead>
         <tbody>
           <tr v-if="instances.length === 0">
-            <td colspan="10" class="empty-cell">暂无运行中的实例</td>
+            <td colspan="9" class="empty-cell">暂无运行中的实例</td>
           </tr>
           <tr v-for="(inst, idx) in instances" :key="inst.container_name + '-' + idx">
             <td>{{ inst.node_name || inst.node_id || '—' }}</td>
@@ -46,26 +45,6 @@
             <td>{{ gpuCount(inst) }}</td>
             <td>{{ inst.memory_gb != null ? inst.memory_gb + 'G' : '—' }}</td>
             <td>{{ inst.image_name || '—' }}</td>
-            <td>
-              <div class="status-cell">
-                <span :class="statusClass(inst.status)">
-                  <span class="status-dot" aria-hidden="true" />
-                  <span>{{ statusText(inst.status) }}</span>
-                </span>
-                <div
-                  v-if="inst.status === 'rebuilding'"
-                  class="power-hint rebuilding-hint"
-                >
-                  等待节点完成重建
-                </div>
-                <div
-                  v-if="inst.status === 'stopped'"
-                  :class="powerHintClass(inst)"
-                >
-                  {{ powerHintText(inst) }}
-                </div>
-              </div>
-            </td>
             <td>
               <div v-if="sshCommand(inst) !== '—'" class="ssh-cell">
                 <code class="ssh-cmd">{{ sshCommand(inst) }}</code>
@@ -87,9 +66,31 @@
               <span v-else>—</span>
             </td>
             <td>
-              <div :class="{ 'auto-stop-warning': isAutoStopSoon(inst) }">
-                <div>{{ autoStopLabel(inst) }}</div>
-                <div v-if="inst.status === 'running'" class="countdown">{{ autoStopCountdownText(inst) }}</div>
+              <div class="status-cell" :class="{ 'auto-stop-warning': isAutoStopSoon(inst) }">
+                <div class="status-summary">
+                  <span :class="statusClass(inst.status)">
+                    <span class="status-dot" aria-hidden="true" />
+                    <span>{{ statusText(inst.status) }}</span>
+                  </span>
+                  <div
+                    v-if="inst.status === 'running'"
+                    class="countdown"
+                  >
+                    {{ autoStopCountdownText(inst) }}
+                  </div>
+                  <div
+                    v-else-if="inst.status === 'stopped'"
+                    :class="powerHintClass(inst)"
+                  >
+                    {{ powerHintText(inst) }}
+                  </div>
+                </div>
+                <div
+                  v-if="inst.status === 'rebuilding'"
+                  class="power-hint rebuilding-hint"
+                >
+                  等待节点完成重建
+                </div>
               </div>
             </td>
             <td>
@@ -136,7 +137,7 @@
 <script setup lang="ts">
 import { computed, reactive } from 'vue'
 import type { Instance, NodeStatus } from '@/stores/cluster'
-import { autoStopCountdown, formatAutoStopTime } from '@/shared/utils/format'
+import { autoStopCountdown } from '@/shared/utils/format'
 import { copyToClipboard } from '@/shared/utils/clipboard'
 import { useToastStore } from '@/stores/toast'
 
@@ -231,11 +232,6 @@ function autoStopAt(inst: Instance): string | null {
 function autoStopTimestamp(value: string): number {
   const hasTimezone = /[zZ]|[+-]\d{2}:?\d{2}$/.test(value)
   return new Date(hasTimezone ? value : `${value}Z`).getTime()
-}
-
-function autoStopLabel(inst: Instance): string {
-  if (inst.status !== 'running') return '已停止'
-  return formatAutoStopTime(autoStopAt(inst))
 }
 
 function autoStopCountdownText(inst: Instance): string {
@@ -363,6 +359,13 @@ tbody tr:last-child td { border-bottom: none; }
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
+}
+
+.status-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .status-running,
@@ -512,6 +515,11 @@ tbody tr:last-child td { border-bottom: none; }
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   margin-top: 2px;
+}
+
+.status-summary .countdown,
+.status-summary .power-hint {
+  margin-top: 0;
 }
 
 .auto-stop-heading {
