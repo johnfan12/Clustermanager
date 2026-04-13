@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <Transition name="modal">
-      <div v-if="visible" class="modal-backdrop" @click.self="onBackdrop">
+      <div v-if="visible" class="modal-backdrop">
         <div :class="['modal-panel', sizeClass]" role="dialog" aria-modal="true">
           <div class="modal-header">
             <h3 class="modal-title">{{ title }}</h3>
@@ -35,13 +35,11 @@ const props = withDefaults(
     visible: boolean
     title?: string
     size?: 'sm' | 'md' | 'lg'
-    closeOnBackdrop?: boolean
     showClose?: boolean
   }>(),
   {
     title: '',
     size: 'md',
-    closeOnBackdrop: true,
     showClose: true
   }
 )
@@ -56,12 +54,6 @@ const sizeClass = computed(() => `modal-${props.size}`)
 function onClose() {
   emit('update:visible', false)
   emit('close')
-}
-
-function onBackdrop() {
-  if (props.closeOnBackdrop) {
-    onClose()
-  }
 }
 </script>
 

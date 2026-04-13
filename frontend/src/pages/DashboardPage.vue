@@ -48,7 +48,6 @@
       :visible="createTransitionVisible"
       title="实例创建中"
       size="sm"
-      :close-on-backdrop="false"
       :show-close="false"
     >
       <div class="create-transition-window">
