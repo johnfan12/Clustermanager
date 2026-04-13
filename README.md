@@ -73,6 +73,7 @@ mkdir -p logs
 编辑 `.env`，至少确认以下配置：
 
 ```env
+APP_DISPLAY_NAME=GPU 集群管理
 CLUSTER_DATABASE_URL=postgresql+psycopg://cluster_user:cluster_pass@127.0.0.1:5432/cluster_manager
 GPU_HOURS_DEFAULT_QUOTA=100
 GPU_HOURS_RESET_TIMEZONE=Asia/Shanghai
@@ -148,6 +149,7 @@ alembic upgrade head
 
 ## 关键配置
 
+- `APP_DISPLAY_NAME`：登录页顶部展示名称，可替换为你的组织名或平台名
 - `JWT_SECRET`：需与所有 Servermanager 保持一致
 - `INTERNAL_SERVICE_TOKEN`：需与所有 Servermanager 保持一致
 - `NODES_JSON`：节点 API 地址与 admin_token

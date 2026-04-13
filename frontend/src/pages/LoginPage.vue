@@ -1,43 +1,12 @@
 <template>
   <div class="auth-page">
     <div class="auth-shell">
-      <!-- Left: Node Selection -->
-      <div class="auth-side">
-        <h1 class="auth-title">GPU 集群管理</h1>
-        <p class="auth-subtitle">选择目标服务器，注册或登录后即可进入管理。</p>
-
-        <div class="section-label">
-          <h2>可用服务器</h2>
-          <span class="tip">{{ nodeSummaryText }}</span>
-        </div>
-
-        <div class="node-list">
-          <div
-            v-if="authNodes.length === 0"
-            class="node-empty"
-          >
-            暂无可用节点
-          </div>
-          <button
-            v-for="(node, idx) in authNodes"
-            :key="node.node_id"
-            :class="['node-card', { selected: node.node_id === selectedNodeId, offline: !node.online }]"
-            type="button"
-            @click="selectNode(node.node_id)"
-          >
-            <div class="node-card-header">
-              <div class="node-name">节点{{ idx + 1 }} · {{ node.name || node.node_id }}</div>
-              <span class="node-status">
-                <span :class="['dot', node.online ? 'online' : 'offline']" />
-                {{ node.online ? '在线' : '离线' }}
-              </span>
-            </div>
-          </button>
-        </div>
-      </div>
-
-      <!-- Right: Auth Form -->
       <div class="auth-main">
+        <div class="auth-header">
+          <h1 class="auth-title">{{ appDisplayName }}</h1>
+          <p class="auth-subtitle">注册或登录后即可进入管理。</p>
+        </div>
+
         <div class="tabs">
           <button
             :class="['tab', { active: mode === 'login' }]"
@@ -165,28 +134,36 @@ const registerSuccess = ref(false)
 
 // ── Computed ──
 const authNodes = computed(() => clusterStore.authNodes)
-
-const nodeSummaryText = computed(() => {
-  if (!authNodes.value.length) return '加载中...'
-  const online = authNodes.value.filter((n: AuthNode) => n.online).length
-  return `${authNodes.value.length} 个节点，在线 ${online} 个`
-})
-
-const selectedNode = computed(() =>
-  authNodes.value.find((n: AuthNode) => n.node_id === selectedNodeId.value) || null
-)
+const appDisplayName = computed(() => clusterStore.appDisplayName || 'GPU 集群管理')
 
 // ── Methods ──
-function selectNode(nodeId: string) {
-  selectedNodeId.value = nodeId
-  localStorage.setItem('cluster_node_id', nodeId)
+function pickDefaultNodeId(nodes: AuthNode[], preferredNodeId: string) {
+  const matchedNode = nodes.find((node) => node.node_id === preferredNodeId)
+  if (matchedNode) return matchedNode.node_id
+
+  const onlineNode = nodes.find((node) => node.online)
+  if (onlineNode) return onlineNode.node_id
+
+  return nodes[0]?.node_id || ''
+}
+
+function ensureSelectedNode() {
+  const nextNodeId = pickDefaultNodeId(authNodes.value, selectedNodeId.value)
+  selectedNodeId.value = nextNodeId
+  if (nextNodeId) {
+    localStorage.setItem('cluster_node_id', nextNodeId)
+  } else {
+    localStorage.removeItem('cluster_node_id')
+  }
+
+  return authNodes.value.find((node: AuthNode) => node.node_id === nextNodeId) || null
 }
 
 async function doLogin() {
   loginError.value = ''
-  const node = selectedNode.value
+  const node = ensureSelectedNode()
   if (!node) {
-    loginError.value = '请先选择服务器'
+    loginError.value = '当前暂无可用节点，请联系管理员检查集群配置'
     return
   }
   if (!loginForm.username || !loginForm.password) {
@@ -220,9 +197,9 @@ async function doLogin() {
 async function doRegister() {
   registerError.value = ''
   registerSuccess.value = false
-  const node = selectedNode.value
+  const node = ensureSelectedNode()
   if (!node) {
-    registerError.value = '请先选择服务器'
+    registerError.value = '当前暂无可用节点，请联系管理员检查集群配置'
     return
   }
   if (!registerForm.username || !registerForm.email || !registerForm.password) {
@@ -261,15 +238,7 @@ async function doRegister() {
 // ── Lifecycle ──
 onMounted(async () => {
   await clusterStore.fetchAuthNodes()
-  // Auto select first node if none selected
-  if (!selectedNodeId.value && authNodes.value.length) {
-    selectedNodeId.value = authNodes.value[0].node_id
-  }
-  // Verify the selected node still exists
-  const exists = authNodes.value.some((n: AuthNode) => n.node_id === selectedNodeId.value)
-  if (!exists && authNodes.value.length) {
-    selectedNodeId.value = authNodes.value[0].node_id
-  }
+  ensureSelectedNode()
 })
 
 </script>
@@ -285,23 +254,21 @@ onMounted(async () => {
 }
 
 .auth-shell {
-  width: min(1060px, 100%);
-  display: grid;
-  grid-template-columns: 1.1fr 0.9fr;
+  width: min(520px, 100%);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  overflow: hidden;
   box-shadow: var(--shadow-md);
 }
 
-/* ── Left side ── */
-.auth-side {
+.auth-main {
   padding: 36px 32px 32px;
-  background: var(--color-surface-alt);
-  border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
+}
+
+.auth-header {
+  margin-bottom: 22px;
 }
 
 .auth-title {
@@ -313,103 +280,7 @@ onMounted(async () => {
 
 .auth-subtitle {
   color: var(--color-text-muted);
-  margin-bottom: 24px;
   font-size: var(--font-size-base);
-}
-
-.section-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
-}
-
-.section-label h2 {
-  font-size: var(--font-size-base);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text);
-}
-
-.tip {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-}
-
-.node-list {
-  display: grid;
-  gap: 8px;
-  flex: 1;
-  overflow-y: auto;
-  max-height: 360px;
-  padding-right: 4px;
-}
-
-.node-empty {
-  text-align: center;
-  padding: 24px 12px;
-  color: var(--color-text-muted);
-}
-
-.node-card {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 12px 14px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  color: var(--color-text);
-  transition: all var(--transition-fast);
-}
-
-.node-card:hover {
-  border-color: var(--color-border-subtle);
-  background: var(--color-surface-alt);
-}
-
-.node-card.selected {
-  border-color: var(--color-primary);
-  background: var(--color-primary-light);
-  box-shadow: inset 3px 0 0 var(--color-primary);
-}
-
-.node-card.offline { opacity: 0.55; }
-
-.node-card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.node-name {
-  font-weight: var(--font-weight-semibold);
-  font-size: var(--font-size-base);
-}
-
-.node-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--font-size-sm);
-  white-space: nowrap;
-  color: var(--color-text-muted);
-}
-
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  display: inline-block;
-}
-
-.dot.online { background: var(--color-success); }
-.dot.offline { background: #a19f9d; }
-
-/* ── Right side ── */
-.auth-main {
-  padding: 36px 32px 32px;
-  display: flex;
-  flex-direction: column;
 }
 
 .tabs {
@@ -480,18 +351,7 @@ onMounted(async () => {
 
 .feedback.success { color: var(--color-success); }
 
-/* ── Responsive ── */
-@media (max-width: 960px) {
-  .auth-shell { grid-template-columns: 1fr; }
-  .auth-side {
-    border-right: none;
-    border-bottom: 1px solid var(--color-border);
-  }
-  .node-list { max-height: 220px; }
-}
-
 @media (max-width: 720px) {
-  .auth-side,
   .auth-main {
     padding: 24px 20px;
   }

@@ -79,7 +79,7 @@ logger.addHandler(console_handler)
 
 # ── FastAPI 应用 ───────────────────────────────────────────────────────────
 
-app = FastAPI(title="GPU 集群管理", version="1.0.0")
+app = FastAPI(title=config.APP_DISPLAY_NAME, version="1.0.0")
 app.include_router(auth_router)
 
 # 请求超时（秒）

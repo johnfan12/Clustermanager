@@ -313,7 +313,7 @@ def get_optional_user(token: Optional[str] = Depends(oauth2_scheme)) -> Optional
 
 
 @router.get("/nodes")
-async def list_auth_nodes() -> dict[str, list[dict[str, Any]]]:
+async def list_auth_nodes() -> dict[str, Any]:
     """返回可登录/注册的节点列表。"""
     async with httpx.AsyncClient() as client:
         tasks = [
@@ -321,7 +321,10 @@ async def list_auth_nodes() -> dict[str, list[dict[str, Any]]]:
             for node_id, node_cfg in config.NODES.items()
         ]
         nodes = await asyncio.gather(*tasks)
-    return {"nodes": nodes}
+    return {
+        "nodes": nodes,
+        "app_display_name": config.APP_DISPLAY_NAME,
+    }
 
 
 @router.post("/login", response_model=TokenResponse)

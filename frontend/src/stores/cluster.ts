@@ -123,6 +123,7 @@ export const useClusterStore = defineStore('cluster', () => {
   const summary = ref<ClusterSummary>({ total_gpu: 0, free_gpu: 0, total_instances: 0 })
   const instances = ref<Instance[]>([])
   const authNodes = ref<AuthNode[]>([])
+  const appDisplayName = ref('GPU 集群管理')
   const metadata = ref<Metadata | null>(null)
 
   // Auto-refresh
@@ -234,10 +235,15 @@ export const useClusterStore = defineStore('cluster', () => {
   // Actions
   async function fetchAuthNodes() {
     try {
-      const data = await api.get<{ nodes: AuthNode[] }>('/api/auth/nodes', { skipAuth: true })
+      const data = await api.get<{ nodes: AuthNode[]; app_display_name?: string }>(
+        '/api/auth/nodes',
+        { skipAuth: true }
+      )
       authNodes.value = Array.isArray(data.nodes) ? data.nodes : []
+      appDisplayName.value = data.app_display_name?.trim() || 'GPU 集群管理'
     } catch (e) {
       authNodes.value = []
+      appDisplayName.value = 'GPU 集群管理'
       console.error('节点列表加载失败', e)
     }
   }
@@ -297,6 +303,7 @@ export const useClusterStore = defineStore('cluster', () => {
     summary,
     instances,
     authNodes,
+    appDisplayName,
     metadata,
     // actions
     fetchAuthNodes,

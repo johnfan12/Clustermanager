@@ -60,6 +60,9 @@ JWT_ALGORITHM: str = os.environ.get("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_HOURS: int = int(os.environ.get("JWT_EXPIRE_HOURS", "24"))
 
 ENV: str = os.environ.get("ENV", "dev").lower()
+APP_DISPLAY_NAME: str = os.environ.get("APP_DISPLAY_NAME", "GPU 集群管理").strip()
+if not APP_DISPLAY_NAME:
+    APP_DISPLAY_NAME = "GPU 集群管理"
 
 # 服务间鉴权密钥 — 用于回写 Servermanager 的 VPS 访问信息
 INTERNAL_SERVICE_TOKEN: str = os.environ.get(
