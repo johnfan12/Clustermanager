@@ -22,6 +22,32 @@ def _get_session() -> Session:
     return SessionLocal()
 
 
+def create_cluster_user(username: str, email: str, password: str) -> None:
+    """Create one central user record and fail on username/email conflicts."""
+    password_hash = pwd_context.hash(password)
+    with _get_session() as db:
+        existing_user = db.get(ClusterUser, username)
+        if existing_user is not None:
+            raise ValueError("用户名已存在")
+
+        existing_email = (
+            db.query(ClusterUser).filter(ClusterUser.email == email).first()
+        )
+        if existing_email is not None:
+            raise ValueError("邮箱已被使用")
+
+        db.add(
+            ClusterUser(
+                username=username,
+                email=email,
+                password_hash=password_hash,
+                gpu_hours_quota=config.GPU_HOURS_DEFAULT_QUOTA,
+                gpu_hours_last_reset_period=config.current_gpu_hours_reset_period(),
+            )
+        )
+        db.commit()
+
+
 def upsert_cluster_user(username: str, email: str, password: str) -> None:
     """Create or update a user record in central store."""
     password_hash = pwd_context.hash(password)
@@ -73,7 +99,6 @@ def get_cluster_user_sync_record(username: str) -> dict[str, str | list[dict[str
     return {
         "username": str(user.username),
         "email": str(user.email),
-        "password_hash": str(user.password_hash),
         "ssh_public_keys": [
             {
                 "public_key": str(key.public_key),

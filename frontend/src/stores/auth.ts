@@ -45,7 +45,7 @@ export const useAuthStore = defineStore('auth', () => {
     user?: UserInfo
     username?: string
     is_admin?: boolean
-    node_id?: string
+    node_id?: string | null
   }) {
     token.value = data.access_token || ''
     user.value = data.user || {

@@ -72,7 +72,7 @@ INTERNAL_SERVICE_TOKEN: str = os.environ.get(
 # ============================================================================
 # 集群节点列表
 # api        — frp 穿透到 VPS 本地的地址
-# admin_token — 对应节点 gpu_manager 的管理员 JWT，用于拉取全局数据
+# admin_token — 历史字段，当前版本已不再依赖
 #
 # 可以通过 .env 中的 NODES_JSON 覆盖，例如：
 # NODES_JSON='{"node1":{"name":"节点1","api":"http://localhost:18881",...}}'

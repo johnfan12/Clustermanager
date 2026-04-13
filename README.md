@@ -4,12 +4,12 @@
 
 ## 核心功能
 
-- 统一认证入口：注册/登录 -> 选择节点 -> 进入节点
+- 统一认证入口：注册/登录 -> 进入控制台 -> 按需进入节点
 - 集群总览：节点在线状态、GPU 空闲数、实例数
 - 我的实例：跨节点汇总并展示 SSH 信息
 - 自动 FRP visitor 管理（每实例独立 `frpc-visitor@<container>.service`）
 - 服务间回写 `vps_access` 到节点实例
-- 中心用户库 + 自动补建（新增节点后首次登录自动同步账号）
+- 中心用户库 + 节点影子用户自动补建（新增节点或节点缺少用户快照时自动同步）
 
 ## 快速启动
 
@@ -152,7 +152,7 @@ alembic upgrade head
 - `APP_DISPLAY_NAME`：登录页顶部展示名称，可替换为你的组织名或平台名
 - `JWT_SECRET`：需与所有 Servermanager 保持一致
 - `INTERNAL_SERVICE_TOKEN`：需与所有 Servermanager 保持一致
-- `NODES_JSON`：节点 API 地址与 admin_token
+- `NODES_JSON`：节点 API 地址与展示信息
 - `FRP_TOKEN`：与 frps 一致
 - `FRP_VISITOR_CONFIG_DIR`：默认 `/etc/frp/visitors`
 - `CLUSTER_DATABASE_URL`、`AUTO_PROVISION_ON_NODE_LOGIN`
@@ -188,7 +188,7 @@ alembic upgrade head
 
 ### Q5: 新增节点后，用户需要重新注册吗？
 - 默认不需要（`AUTO_PROVISION_ON_NODE_LOGIN=true`）。
-- 用户首次登录新节点时，会从中心用户库校验并自动补建账号。
+- 用户首次访问新节点时，会从中心用户库自动补建节点影子账号。
 
 ## 相关文件
 

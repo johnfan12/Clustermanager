@@ -1,4 +1,4 @@
-"""认证模块 - JWT 验证、节点登录代理与注册代理。"""
+"""认证模块 - 中心认证、节点影子用户同步与 JWT 验证。"""
 
 from __future__ import annotations
 
@@ -14,9 +14,10 @@ from pydantic import BaseModel, Field
 
 import config
 from user_store import (
+    create_cluster_user,
     get_cluster_user,
     init_user_store,
-    upsert_cluster_user,
+    get_cluster_user_sync_record,
     verify_cluster_user_password,
 )
 
@@ -42,17 +43,17 @@ class TokenResponse(BaseModel):
 
 
 class NodeLoginRequest(BaseModel):
-    """用户登录到指定节点。"""
+    """用户登录到聚合层；可选指定登录后的首选节点。"""
 
-    node_id: str = Field(min_length=1, max_length=64)
+    node_id: str | None = Field(default=None, max_length=64)
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=128)
 
 
 class NodeRegisterRequest(BaseModel):
-    """用户在指定节点注册账号。"""
+    """用户注册聚合层账号；可选指定注册后的首选节点。"""
 
-    node_id: str = Field(min_length=1, max_length=64)
+    node_id: str | None = Field(default=None, max_length=64)
     username: str = Field(min_length=3, max_length=64, pattern=r"^[A-Za-z0-9_]+$")
     email: str
     password: str = Field(min_length=6, max_length=128)
@@ -61,7 +62,7 @@ class NodeRegisterRequest(BaseModel):
 # ── JWT 工具函数 ───────────────────────────────────────────────────────────
 
 
-def create_token(username: str, is_admin: bool = False) -> str:
+def create_token(username: str, is_admin: bool = False, email: str | None = None) -> str:
     """生成 JWT token。
 
     Args:
@@ -77,6 +78,8 @@ def create_token(username: str, is_admin: bool = False) -> str:
         "is_admin": is_admin,
         "exp": expire,
     }
+    if email:
+        payload["email"] = email
     return jwt.encode(payload, config.JWT_SECRET, algorithm=config.JWT_ALGORITHM)
 
 
@@ -88,69 +91,21 @@ def _get_node_config(node_id: str) -> dict[str, Any]:
     return node_cfg
 
 
-def _extract_error_detail(response: httpx.Response) -> str:
-    """从节点响应中提取可读错误信息。"""
-    try:
-        payload = response.json()
-    except ValueError:
-        payload = None
-
-    if isinstance(payload, dict):
-        detail = payload.get("detail") or payload.get("message")
-        if isinstance(detail, str) and detail:
-            return detail
-    text = response.text.strip()
-    return text or "请求失败"
-
-
-async def _request_node_json(
-    node_id: str,
-    method: str,
-    path: str,
-    payload: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """向指定节点发送 JSON 请求并返回响应。"""
-    node_cfg = _get_node_config(node_id)
-    url = f"{node_cfg['api']}{path}"
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.request(
-                method=method,
-                url=url,
-                json=payload,
-                timeout=AUTH_REQUEST_TIMEOUT,
-            )
-    except httpx.RequestError as exc:
-        raise HTTPException(
-            status_code=503, detail=f"节点 {node_cfg['name']} 暂时不可用"
-        ) from exc
-
-    if response.status_code >= 400:
-        raise HTTPException(
-            status_code=response.status_code,
-            detail=_extract_error_detail(response),
-        )
-
-    try:
-        data = response.json()
-    except ValueError as exc:
-        raise HTTPException(status_code=502, detail="节点返回了无效响应") from exc
-
-    if not isinstance(data, dict):
-        raise HTTPException(status_code=502, detail="节点返回格式不正确")
-    return data
-
-
 def _build_token_response(
-    node_id: str,
-    user_payload: dict[str, Any] | None,
+    username: str,
+    email: str | None,
+    is_admin: bool,
+    *,
+    node_id: str | None = None,
     message: str | None = None,
 ) -> TokenResponse:
-    """统一组装登录/注册响应。"""
-    user_info = user_payload or {}
-    username = str(user_info.get("username") or "")
-    is_admin = bool(user_info.get("is_admin", False))
-    cluster_token = create_token(username=username, is_admin=is_admin)
+    """统一组装聚合层登录/注册响应。"""
+    user_payload = {
+        "username": username,
+        "email": email,
+        "is_admin": is_admin,
+    }
+    cluster_token = create_token(username=username, is_admin=is_admin, email=email)
     return TokenResponse(
         access_token=cluster_token,
         username=username,
@@ -161,60 +116,62 @@ def _build_token_response(
     )
 
 
-def _build_cluster_local_login_response(
+def _resolve_target_node_id(node_id: str | None) -> str | None:
+    """Resolve the preferred node for post-login sync without making auth depend on it."""
+    normalized = (node_id or "").strip()
+    if normalized:
+        _get_node_config(normalized)
+        return normalized
+    if not config.NODES:
+        return None
+    return next(iter(config.NODES))
+
+
+async def _sync_cluster_user_to_node(
+    node_id: str | None,
     username: str,
-    is_admin: bool = False,
-    message: str | None = None,
-) -> TokenResponse:
-    """Build a local Clustermanager login response when node is unavailable."""
-    token = create_token(username=username, is_admin=is_admin)
-    user_payload = {
-        "username": username,
-        "is_admin": is_admin,
-    }
-    return TokenResponse(
-        access_token=token,
-        username=username,
-        is_admin=is_admin,
-        user=user_payload,
-        message=message,
-    )
+    *,
+    is_admin: bool,
+) -> bool:
+    """Best-effort push one central/shadow user snapshot to the selected node."""
+    if not node_id:
+        return False
 
-
-async def _login_to_node(node_id: str, username: str, password: str) -> TokenResponse:
-    """向节点执行登录并返回聚合后的响应。"""
-    data = await _request_node_json(
-        node_id,
-        "POST",
-        "/api/auth/login",
-        {"username": username, "password": password},
-    )
-    access_token = data.get("access_token")
-    if not isinstance(access_token, str) or not access_token:
-        raise HTTPException(status_code=502, detail="节点未返回 access_token")
-    user_payload = data.get("user")
-    if user_payload is not None and not isinstance(user_payload, dict):
-        user_payload = None
-    return _build_token_response(node_id, user_payload)
-
-
-async def _register_to_node(
-    node_id: str,
-    username: str,
-    email: str,
-    password: str,
-) -> None:
-    """Register an account on the target node."""
-    await _request_node_json(
-        node_id,
-        "POST",
-        "/api/auth/register",
-        {
+    node_cfg = _get_node_config(node_id)
+    user_record = get_cluster_user_sync_record(username)
+    if user_record is None:
+        if not is_admin or username != config.ADMIN_USERNAME:
+            return False
+        user_record = {
             "username": username,
-            "email": email,
-            "password": password,
-        },
-    )
+            "email": f"{username}@local",
+            "ssh_public_keys": [],
+        }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{node_cfg['api']}/api/internal/users/sync",
+                headers={"X-Internal-Token": config.INTERNAL_SERVICE_TOKEN},
+                json={
+                    **user_record,
+                    "is_admin": is_admin,
+                },
+                timeout=AUTH_REQUEST_TIMEOUT,
+            )
+        response.raise_for_status()
+        return True
+    except Exception:
+        return False
+
+
+def _build_login_message(synced: bool, node_id: str | None, action: str) -> str | None:
+    """Return one user-facing login/register message based on sync result."""
+    if not node_id:
+        return None
+    if synced:
+        return f"{action}成功，目标节点账号已同步"
+    return f"{action}成功；目标节点暂不可达，稍后会自动补建账号"
 
 
 async def _fetch_node_auth_meta(
@@ -286,6 +243,7 @@ def get_current_user_info(
     return {
         "username": username,
         "is_admin": bool(payload.get("is_admin", username == config.ADMIN_USERNAME)),
+        "email": payload.get("email"),
     }
 
 
@@ -329,93 +287,70 @@ async def list_auth_nodes() -> dict[str, Any]:
 
 @router.post("/login", response_model=TokenResponse)
 async def login(payload: NodeLoginRequest) -> TokenResponse:
-    """将登录请求转发到用户选择的 Servermanager 节点。"""
-    try:
-        return await _login_to_node(payload.node_id, payload.username, payload.password)
-    except HTTPException as exc:
-        # Node unavailable: allow local login with central user store credentials.
-        if exc.status_code in (502, 503):
-            if (
-                payload.username == config.ADMIN_USERNAME
-                and payload.password == config.ADMIN_PASSWORD
-            ):
-                return _build_cluster_local_login_response(
-                    username=payload.username,
-                    is_admin=True,
-                    message="节点离线，已登录聚合层管理员账号",
-                )
+    """Authenticate against the central store and optionally sync a shadow user to one node."""
+    target_node_id = _resolve_target_node_id(payload.node_id)
 
-            if verify_cluster_user_password(payload.username, payload.password):
-                return _build_cluster_local_login_response(
-                    username=payload.username,
-                    is_admin=False,
-                    message="节点离线，已登录聚合层账号；节点恢复后可继续进入服务器",
-                )
-
-            raise HTTPException(status_code=401, detail="用户名或密码错误") from exc
-
-        should_try_provision = (
-            config.AUTO_PROVISION_ON_NODE_LOGIN and exc.status_code in (401, 404)
-        )
-        if not should_try_provision:
-            raise
-
-        central_user = get_cluster_user(payload.username)
-        if central_user is None:
-            raise
-
-        if not verify_cluster_user_password(payload.username, payload.password):
-            raise HTTPException(status_code=401, detail="用户名或密码错误") from exc
-
-        try:
-            await _register_to_node(
-                payload.node_id,
-                payload.username,
-                central_user["email"],
-                payload.password,
-            )
-        except HTTPException as reg_exc:
-            if reg_exc.status_code not in (400, 409):
-                raise
-
-        token_response = await _login_to_node(
-            payload.node_id,
+    if (
+        payload.username == config.ADMIN_USERNAME
+        and payload.password == config.ADMIN_PASSWORD
+    ):
+        synced = await _sync_cluster_user_to_node(
+            target_node_id,
             payload.username,
-            payload.password,
+            is_admin=True,
         )
-        token_response.message = "已自动将账号同步到该节点"
-        return token_response
+        return _build_token_response(
+            username=payload.username,
+            email=f"{payload.username}@local",
+            is_admin=True,
+            node_id=target_node_id,
+            message=_build_login_message(synced, target_node_id, "登录"),
+        )
+
+    central_user = get_cluster_user(payload.username)
+    if central_user is None or not verify_cluster_user_password(
+        payload.username, payload.password
+    ):
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+
+    synced = await _sync_cluster_user_to_node(
+        target_node_id,
+        payload.username,
+        is_admin=False,
+    )
+    return _build_token_response(
+        username=payload.username,
+        email=str(central_user["email"]),
+        is_admin=False,
+        node_id=target_node_id,
+        message=_build_login_message(synced, target_node_id, "登录"),
+    )
 
 
 @router.post("/register", response_model=TokenResponse)
 async def register(payload: NodeRegisterRequest) -> TokenResponse:
-    """注册聚合层账号；节点在线则同步到节点并自动登录。"""
-    upsert_cluster_user(payload.username, payload.email, payload.password)
+    """Register centrally and best-effort sync a shadow user to the preferred node."""
+    if payload.username == config.ADMIN_USERNAME:
+        raise HTTPException(status_code=400, detail="该用户名为保留管理员账号")
 
     try:
-        await _register_to_node(
-            payload.node_id,
-            payload.username,
-            payload.email,
-            payload.password,
-        )
-        token_response = await _login_to_node(
-            payload.node_id,
-            payload.username,
-            payload.password,
-        )
-        token_response.message = "注册成功，已自动登录"
-        return token_response
-    except HTTPException as exc:
-        # 节点离线或当前节点未开放注册：先完成聚合层注册与登录。
-        if exc.status_code in (400, 403, 409, 502, 503):
-            token_response = _build_cluster_local_login_response(
-                username=payload.username,
-                is_admin=False,
-                message="已完成聚合层注册；节点恢复或切换后会自动同步账号",
-            )
-            return token_response
-        raise
+        create_cluster_user(payload.username, payload.email, payload.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    target_node_id = _resolve_target_node_id(payload.node_id)
+    synced = await _sync_cluster_user_to_node(
+        target_node_id,
+        payload.username,
+        is_admin=False,
+    )
+    return _build_token_response(
+        username=payload.username,
+        email=payload.email,
+        is_admin=False,
+        node_id=target_node_id,
+        message=_build_login_message(synced, target_node_id, "注册"),
+    )
 
 
 @router.get("/me")

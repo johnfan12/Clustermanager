@@ -178,7 +178,7 @@ async function doLogin() {
       username: string
       is_admin: boolean
       user: UserInfo
-      node_id: string
+      node_id?: string | null
     }>('/api/auth/login', {
       node_id: node.node_id,
       username: loginForm.username,
@@ -214,7 +214,7 @@ async function doRegister() {
       username: string
       is_admin: boolean
       user: UserInfo
-      node_id: string
+      node_id?: string | null
       message?: string
     }>('/api/auth/register', {
       node_id: node.node_id,

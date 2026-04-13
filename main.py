@@ -585,8 +585,15 @@ async def _sync_cluster_user_to_node(
     """Push one central user record to a node so existing sessions can continue to work."""
     user_record = get_cluster_user_sync_record(username)
     if user_record is None:
-        logger.warning("中心用户不存在，跳过自动补建 user=%s node=%s", username, node_id)
-        return False
+        if is_admin and username == config.ADMIN_USERNAME:
+            user_record = {
+                "username": username,
+                "email": f"{username}@local",
+                "ssh_public_keys": [],
+            }
+        else:
+            logger.warning("中心用户不存在，跳过自动补建 user=%s node=%s", username, node_id)
+            return False
 
     try:
         response = await client.post(
