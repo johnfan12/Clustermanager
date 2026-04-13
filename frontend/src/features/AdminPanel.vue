@@ -18,12 +18,24 @@
       <h3 class="section-subtitle">用户列表</h3>
       <div v-if="users.length === 0" class="empty-sub">暂无用户数据</div>
       <div v-else class="admin-list">
-        <div v-for="user in users" :key="user.username" class="admin-item">
+        <div v-for="user in sortedUsers" :key="user.username" class="admin-item">
           <div class="item-header">
             <strong>{{ user.username }}</strong>
             <span v-if="user.is_admin" class="admin-badge">管理员</span>
+            <span :class="['review-badge', user.register_status]">
+              {{ registerStatusText(user.register_status) }}
+            </span>
           </div>
           <div class="item-meta">{{ user.email }}</div>
+          <div class="item-meta">
+            创建于 {{ formatDateTime(user.created_at) }}
+            <template v-if="user.approved_at">
+              · 审批于 {{ formatDateTime(user.approved_at) }}
+            </template>
+            <template v-if="user.approved_by">
+              · 审批人 {{ user.approved_by }}
+            </template>
+          </div>
           <div class="item-stats">
             运行中 GPU {{ user.used_gpu }} ·
             内存 {{ user.used_memory_gb }}G ·
@@ -31,7 +43,28 @@
             卡时 {{ formatGpuHours(user.gpu_hours_used) }}/{{ formatGpuHours(user.gpu_hours_quota) }}
           </div>
           <div class="item-actions">
-            <button class="action-link" @click="openQuotaModal(user)">修改卡时额度</button>
+            <button
+              v-if="user.register_status !== 'approved'"
+              class="action-link"
+              :disabled="loading.approve"
+              @click="handleApproveUser(user)"
+            >
+              审批通过
+            </button>
+            <button
+              v-if="user.register_status === 'approved'"
+              class="action-link"
+              @click="openQuotaModal(user)"
+            >
+              修改卡时额度
+            </button>
+            <button
+              v-if="!user.is_admin"
+              class="action-link danger"
+              @click="confirmDeleteUser(user)"
+            >
+              删除用户
+            </button>
           </div>
         </div>
       </div>
@@ -85,8 +118,8 @@
       </template>
     </AppModal>
 
-    <!-- Delete Modal -->
-    <AppModal v-model:visible="modals.delete" title="确认强制删除" size="sm">
+    <!-- Instance Delete Modal -->
+    <AppModal v-model:visible="modals.instanceDelete" title="确认强制删除" size="sm">
       <div class="danger-panel">
         <p>确认强制删除实例 <strong>{{ instanceLabel(selectedInstance) }}</strong> 吗？</p>
         <p v-if="showTechnicalName(selectedInstance)" class="hint">
@@ -95,8 +128,23 @@
         <p class="hint">此操作会立即删除该实例，数据将丢失且无法恢复！</p>
       </div>
       <template #footer>
-        <AppButton variant="secondary" @click="modals.delete = false">取消</AppButton>
-        <AppButton variant="danger" :loading="loading.delete" @click="handleForceDelete">
+        <AppButton variant="secondary" @click="modals.instanceDelete = false">取消</AppButton>
+        <AppButton variant="danger" :loading="loading.instanceDelete" @click="handleForceDelete">
+          确认删除
+        </AppButton>
+      </template>
+    </AppModal>
+
+    <!-- User Delete Modal -->
+    <AppModal v-model:visible="modals.userDelete" title="确认删除用户" size="sm">
+      <div class="danger-panel">
+        <p>确认删除用户 <strong>{{ selectedUser?.username }}</strong> 吗？</p>
+        <p class="hint">删除后该用户将无法再登录聚合端。</p>
+        <p class="hint">若该用户仍有关联实例或会话，系统会拒绝删除并提示先清理资源。</p>
+      </div>
+      <template #footer>
+        <AppButton variant="secondary" @click="modals.userDelete = false">取消</AppButton>
+        <AppButton variant="danger" :loading="loading.userDelete" @click="handleDeleteUser">
           确认删除
         </AppButton>
       </template>
@@ -105,7 +153,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useClusterStore, type NodeStatus, type AdminUser, type AdminInstance } from '@/stores/cluster'
 import { useToastStore } from '@/stores/toast'
 import AppModal from '@/components/AppModal.vue'
@@ -125,12 +173,15 @@ const allInstances = ref<AdminInstance[]>([])
 
 const modals = reactive({
   quota: false,
-  delete: false
+  instanceDelete: false,
+  userDelete: false
 })
 
 const loading = reactive({
   quota: false,
-  delete: false
+  instanceDelete: false,
+  approve: false,
+  userDelete: false
 })
 
 const selectedUser = ref<AdminUser | null>(null)
@@ -140,8 +191,27 @@ const quotaForm = reactive({
   gpuHours: 100
 })
 
+const sortedUsers = computed(() =>
+  [...users.value].sort((left, right) => {
+    const leftPending = left.register_status === 'pending' ? 0 : 1
+    const rightPending = right.register_status === 'pending' ? 0 : 1
+    if (leftPending !== rightPending) return leftPending - rightPending
+    return left.created_at.localeCompare(right.created_at)
+  })
+)
+
 function formatGpuHours(value: number): string {
   return Number.isFinite(value) ? Number(value).toFixed(2) : '0.00'
+}
+
+function formatDateTime(value: string | null): string {
+  if (!value) return '—'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN')
+}
+
+function registerStatusText(status: AdminUser['register_status']): string {
+  return status === 'pending' ? '待审批' : '已通过'
 }
 
 function statusText(status: string): string {
@@ -200,25 +270,59 @@ async function handleUpdateQuota() {
   }
 }
 
+async function handleApproveUser(user: AdminUser) {
+  loading.approve = true
+  try {
+    const result = await clusterStore.approveUser(user.username)
+    toast.success(result.message || '用户已审批通过')
+    await loadAdminData()
+  } catch (e: any) {
+    toast.error(e.message || '审批失败')
+  } finally {
+    loading.approve = false
+  }
+}
+
+function confirmDeleteUser(user: AdminUser) {
+  selectedUser.value = user
+  modals.userDelete = true
+}
+
+async function handleDeleteUser() {
+  if (!selectedUser.value) return
+
+  loading.userDelete = true
+  try {
+    const result = await clusterStore.deleteUser(selectedUser.value.username)
+    toast.success(result.message || '用户已删除')
+    modals.userDelete = false
+    await loadAdminData()
+  } catch (e: any) {
+    toast.error(e.message || '删除用户失败')
+  } finally {
+    loading.userDelete = false
+  }
+}
+
 function confirmForceDelete(inst: AdminInstance) {
   selectedInstance.value = inst
-  modals.delete = true
+  modals.instanceDelete = true
 }
 
 async function handleForceDelete() {
   if (!selectedNodeId.value || !selectedInstance.value) return
 
-  loading.delete = true
+  loading.instanceDelete = true
   try {
     await clusterStore.forceDeleteInstance(selectedNodeId.value, Number(selectedInstance.value.id))
     toast.success('实例已强制删除')
-    modals.delete = false
+    modals.instanceDelete = false
     await loadAdminData()
     await clusterStore.fetchAll()
   } catch (e: any) {
     toast.error(e.message || '删除失败')
   } finally {
-    loading.delete = false
+    loading.instanceDelete = false
   }
 }
 
@@ -346,6 +450,22 @@ onMounted(() => {
   border-radius: var(--radius-sm);
 }
 
+.review-badge {
+  padding: 2px 8px;
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-sm);
+}
+
+.review-badge.pending {
+  background: #fff3d6;
+  color: #9a6b00;
+}
+
+.review-badge.approved {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
 .item-meta {
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
@@ -380,6 +500,12 @@ onMounted(() => {
 
 .action-link:hover {
   text-decoration: underline;
+}
+
+.action-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  text-decoration: none;
 }
 
 .action-link.danger {

@@ -328,6 +328,33 @@ async def _fetch_cluster_usage_by_username() -> dict[str, dict[str, int]]:
     return usage_by_username
 
 
+async def _fetch_cluster_instances_by_username(username: str) -> list[dict[str, Any]]:
+    """Return all node instances that currently belong to one username."""
+    matched_instances: list[dict[str, Any]] = []
+    async with httpx.AsyncClient() as client:
+        results = await asyncio.gather(
+            *[
+                _fetch_admin_instances(client, node_id, node_cfg)
+                for node_id, node_cfg in config.NODES.items()
+            ],
+            return_exceptions=True,
+        )
+
+    for (node_id, _), result in zip(config.NODES.items(), results, strict=False):
+        if isinstance(result, Exception):
+            continue
+        for instance in result:
+            if str(instance.get("username") or "") != username:
+                continue
+            matched_instances.append(
+                {
+                    **instance,
+                    "node_id": node_id,
+                }
+            )
+    return matched_instances
+
+
 async def _precheck_central_billing(
     request: Request,
     normalized_path: str,
@@ -622,6 +649,44 @@ async def _sync_cluster_user_to_all_nodes(
     async with httpx.AsyncClient() as client:
         tasks = [
             _sync_cluster_user_to_node(client, node_id, node_cfg, username, is_admin)
+            for node_id, node_cfg in config.NODES.items()
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+    for (node_id, _), result in zip(config.NODES.items(), results, strict=False):
+        if isinstance(result, Exception) or result is not True:
+            failed_nodes.append(node_id)
+    return failed_nodes
+
+
+async def _delete_cluster_user_from_node(
+    client: httpx.AsyncClient,
+    node_id: str,
+    node_cfg: Dict[str, Any],
+    username: str,
+) -> bool:
+    """Best-effort remove one node shadow user after the central account is deleted."""
+    try:
+        response = await client.delete(
+            f"{node_cfg['api']}/api/internal/users/{username}",
+            headers={"X-Internal-Token": config.INTERNAL_SERVICE_TOKEN},
+            timeout=REQUEST_TIMEOUT,
+        )
+        if response.status_code == 404:
+            return True
+        response.raise_for_status()
+        logger.info("已删除节点影子用户 user=%s node=%s", username, node_id)
+        return True
+    except Exception as exc:
+        logger.warning("删除节点影子用户失败 user=%s node=%s err=%s", username, node_id, exc)
+        return False
+
+
+async def _delete_cluster_user_from_all_nodes(username: str) -> list[str]:
+    """Best-effort remove one cluster user shadow account from every node."""
+    failed_nodes: list[str] = []
+    async with httpx.AsyncClient() as client:
+        tasks = [
+            _delete_cluster_user_from_node(client, node_id, node_cfg, username)
             for node_id, node_cfg in config.NODES.items()
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -1539,6 +1604,10 @@ async def admin_list_cluster_users(
                 "username": user.username,
                 "email": user.email,
                 "is_admin": user.username == config.ADMIN_USERNAME,
+                "register_status": str(user.register_status or "approved"),
+                "created_at": user.created_at.isoformat(),
+                "approved_at": user.approved_at.isoformat() if user.approved_at else None,
+                "approved_by": str(user.approved_by) if user.approved_by else None,
                 **usage,
                 "gpu_hours_quota": float(user.gpu_hours_quota or 0.0),
                 "gpu_hours_used": float(user.gpu_hours_used or 0.0),
@@ -1564,6 +1633,96 @@ async def admin_update_cluster_user_quota(
     user.gpu_hours_quota = payload.gpu_hours_quota
     db.commit()
     return {"message": "Quota updated."}
+
+
+@app.post("/api/admin/users/{username}/approve")
+async def admin_approve_cluster_user(
+    username: str,
+    user_info: dict[str, Any] = Depends(get_current_user_info),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Approve one pending cluster user so they may log in and sync to nodes."""
+    if not user_info.get("is_admin", False):
+        raise HTTPException(status_code=403, detail="仅管理员可审批用户")
+
+    user = db.get(ClusterUser, username)
+    if user is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    if str(user.register_status or "approved") == "approved":
+        return {"message": "用户已是通过状态"}
+
+    user.register_status = "approved"
+    user.approved_at = datetime.utcnow()
+    user.approved_by = str(user_info.get("username") or "")
+    db.commit()
+
+    failed_nodes = await _sync_cluster_user_to_all_nodes(username, False)
+    if failed_nodes:
+        logger.warning(
+            "用户已审批，但部分节点同步失败 user=%s nodes=%s",
+            username,
+            ",".join(failed_nodes),
+        )
+        return {
+            "message": "用户已审批通过；部分节点同步失败，稍后会在首次访问时自动补建",
+            "failed_nodes": failed_nodes,
+        }
+    return {"message": "用户已审批通过"}
+
+
+@app.delete("/api/admin/users/{username}")
+async def admin_delete_cluster_user(
+    username: str,
+    user_info: dict[str, Any] = Depends(get_current_user_info),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Delete one central user after ensuring no managed instances remain."""
+    if not user_info.get("is_admin", False):
+        raise HTTPException(status_code=403, detail="仅管理员可删除用户")
+    if username == config.ADMIN_USERNAME:
+        raise HTTPException(status_code=400, detail="不能删除保留管理员账号")
+
+    user = db.get(ClusterUser, username)
+    if user is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if user.username == config.ADMIN_USERNAME:
+        raise HTTPException(status_code=400, detail="不能删除保留管理员账号")
+
+    tracked_instances = await _fetch_cluster_instances_by_username(username)
+    tracked_state_count = (
+        db.query(ClusterInstanceState)
+        .filter(ClusterInstanceState.username == username)
+        .count()
+    )
+    tracked_session_count = (
+        db.query(ClusterAgentSession)
+        .filter(ClusterAgentSession.username == username)
+        .count()
+    )
+    if tracked_instances or tracked_state_count > 0 or tracked_session_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "用户仍有关联实例或会话，请先删除该用户的全部实例/会话后再删除账号"
+            ),
+        )
+
+    failed_nodes = await _delete_cluster_user_from_all_nodes(username)
+    db.delete(user)
+    db.commit()
+
+    if failed_nodes:
+        logger.warning(
+            "中心用户已删除，但部分节点影子账号清理失败 user=%s nodes=%s",
+            username,
+            ",".join(failed_nodes),
+        )
+        return {
+            "message": "用户已删除；部分节点影子账号清理失败，请稍后检查节点同步",
+            "failed_nodes": failed_nodes,
+        }
+    return {"message": "用户已删除"}
 
 
 @app.api_route(

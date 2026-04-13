@@ -4,7 +4,7 @@
       <div class="auth-main">
         <div class="auth-header">
           <h1 class="auth-title">{{ appDisplayName }}</h1>
-          <p class="auth-subtitle">注册或登录后即可进入管理。</p>
+          <p class="auth-subtitle">{{ authSubtitle }}</p>
         </div>
 
         <div class="tabs">
@@ -16,11 +16,12 @@
             登录
           </button>
           <button
+            v-if="allowRegister"
             :class="['tab', { active: mode === 'register' }]"
             type="button"
             @click="mode = 'register'"
           >
-            注册
+            {{ registerTabLabel }}
           </button>
         </div>
 
@@ -89,7 +90,7 @@
             />
           </div>
           <AppButton variant="primary" block :loading="registerLoading" type="submit">
-            注册并登录
+            {{ registerButtonLabel }}
           </AppButton>
           <div :class="['feedback', { success: registerSuccess }]">{{ registerError }}</div>
         </form>
@@ -135,6 +136,23 @@ const registerSuccess = ref(false)
 // ── Computed ──
 const authNodes = computed(() => clusterStore.authNodes)
 const appDisplayName = computed(() => clusterStore.appDisplayName || 'GPU 集群管理')
+const allowRegister = computed(() => clusterStore.allowRegister)
+const registerMode = computed(() => clusterStore.registerMode)
+const registerTabLabel = computed(() =>
+  registerMode.value === 'allow_with_permission' ? '申请注册' : '注册'
+)
+const registerButtonLabel = computed(() =>
+  registerMode.value === 'allow_with_permission' ? '提交注册申请' : '注册并登录'
+)
+const authSubtitle = computed(() => {
+  if (!allowRegister.value) {
+    return '当前未开放公开注册，请联系管理员开通账号。'
+  }
+  if (registerMode.value === 'allow_with_permission') {
+    return '新用户提交申请后，需要管理员审批通过才可登录。'
+  }
+  return '注册或登录后即可进入管理。'
+})
 
 // ── Methods ──
 function pickDefaultNodeId(nodes: AuthNode[], preferredNodeId: string) {
@@ -197,6 +215,10 @@ async function doLogin() {
 async function doRegister() {
   registerError.value = ''
   registerSuccess.value = false
+  if (!allowRegister.value) {
+    registerError.value = '当前未开放公开注册，请联系管理员开通账号'
+    return
+  }
   const node = ensureSelectedNode()
   if (!node) {
     registerError.value = '当前暂无可用节点，请联系管理员检查集群配置'
@@ -210,12 +232,13 @@ async function doRegister() {
   registerLoading.value = true
   try {
     const data = await api.post<{
-      access_token: string
+      access_token?: string | null
       username: string
       is_admin: boolean
       user: UserInfo
       node_id?: string | null
       message?: string
+      pending_approval?: boolean
     }>('/api/auth/register', {
       node_id: node.node_id,
       username: registerForm.username,
@@ -223,10 +246,24 @@ async function doRegister() {
       password: registerForm.password
     }, { skipAuth: true })
 
-    authStore.setSession(data)
     registerSuccess.value = true
     registerError.value = data.message || '注册成功'
     toast.success(data.message || '注册成功')
+    if (data.pending_approval || !data.access_token) {
+      registerForm.username = ''
+      registerForm.email = ''
+      registerForm.password = ''
+      mode.value = 'login'
+      return
+    }
+
+    authStore.setSession({
+      access_token: data.access_token,
+      username: data.username,
+      is_admin: data.is_admin,
+      user: data.user,
+      node_id: data.node_id
+    })
     router.push({ name: 'Dashboard' })
   } catch (e: unknown) {
     registerError.value = (e as Error).message || '注册失败'
@@ -238,6 +275,9 @@ async function doRegister() {
 // ── Lifecycle ──
 onMounted(async () => {
   await clusterStore.fetchAuthNodes()
+  if (!clusterStore.allowRegister && mode.value === 'register') {
+    mode.value = 'login'
+  }
   ensureSelectedNode()
 })
 

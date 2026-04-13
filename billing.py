@@ -35,6 +35,9 @@ def ensure_cluster_user_record(
         username=username,
         email=email or f"{username}@local",
         password_hash="",
+        register_status="approved",
+        approved_at=datetime.utcnow(),
+        approved_by="system",
         gpu_hours_quota=config.GPU_HOURS_DEFAULT_QUOTA,
         gpu_hours_last_reset_period=config.current_gpu_hours_reset_period(),
     )

@@ -11,8 +11,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 import config
+from database import get_db
+from models import ClusterUser
 from user_store import (
     create_cluster_user,
     get_cluster_user,
@@ -40,6 +43,13 @@ class TokenResponse(BaseModel):
     user: dict[str, Any] | None = None
     node_id: str | None = None
     message: str | None = None
+
+
+class RegisterResponse(TokenResponse):
+    """Register response which may defer login until admin approval."""
+
+    access_token: str | None = None
+    pending_approval: bool = False
 
 
 class NodeLoginRequest(BaseModel):
@@ -113,6 +123,28 @@ def _build_token_response(
         user=user_payload,
         node_id=node_id,
         message=message,
+    )
+
+
+def _build_pending_register_response(
+    username: str,
+    email: str,
+    *,
+    message: str,
+) -> RegisterResponse:
+    """Return a register response for accounts waiting for admin approval."""
+    return RegisterResponse(
+        access_token=None,
+        username=username,
+        is_admin=False,
+        user={
+            "username": username,
+            "email": email,
+            "is_admin": False,
+            "register_status": "pending",
+        },
+        message=message,
+        pending_approval=True,
     )
 
 
@@ -197,24 +229,9 @@ async def _fetch_node_auth_meta(
     return result
 
 
-def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> str:
-    """从 JWT token 中验证并提取用户名。
-
-    Args:
-        token: Bearer token（由 OAuth2PasswordBearer 自动提取）
-
-    Returns:
-        用户名字符串
-
-    Raises:
-        HTTPException: token 缺失或无效时返回 401
-    """
-    user_info = get_current_user_info(token)
-    return str(user_info["username"])
-
-
 def get_current_user_info(
     token: Optional[str] = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """从 JWT token 中验证并提取用户信息。"""
     if token is None:
@@ -240,11 +257,37 @@ def get_current_user_info(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="无效的 token",
         )
+    is_admin = bool(payload.get("is_admin", username == config.ADMIN_USERNAME))
+    if is_admin and username == config.ADMIN_USERNAME:
+        return {
+            "username": username,
+            "is_admin": True,
+            "email": payload.get("email"),
+        }
+
+    user = db.get(ClusterUser, username)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="账号不存在或已被删除",
+        )
+    if str(user.register_status or "approved") != "approved":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="账号待管理员审批",
+        )
     return {
-        "username": username,
-        "is_admin": bool(payload.get("is_admin", username == config.ADMIN_USERNAME)),
-        "email": payload.get("email"),
+        "username": str(user.username),
+        "is_admin": is_admin,
+        "email": str(user.email),
     }
+
+
+def get_current_user(
+    user_info: dict[str, Any] = Depends(get_current_user_info),
+) -> str:
+    """Return the authenticated username after active-user validation."""
+    return str(user_info["username"])
 
 
 def get_optional_user(token: Optional[str] = Depends(oauth2_scheme)) -> Optional[str]:
@@ -282,6 +325,8 @@ async def list_auth_nodes() -> dict[str, Any]:
     return {
         "nodes": nodes,
         "app_display_name": config.APP_DISPLAY_NAME,
+        "allow_register": config.ALLOW_REGISTER,
+        "allow_register_mode": config.ALLOW_REGISTER_MODE,
     }
 
 
@@ -312,6 +357,8 @@ async def login(payload: NodeLoginRequest) -> TokenResponse:
         payload.username, payload.password
     ):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
+    if str(central_user.get("register_status") or "approved") != "approved":
+        raise HTTPException(status_code=403, detail="账号待管理员审批")
 
     synced = await _sync_cluster_user_to_node(
         target_node_id,
@@ -327,16 +374,36 @@ async def login(payload: NodeLoginRequest) -> TokenResponse:
     )
 
 
-@router.post("/register", response_model=TokenResponse)
-async def register(payload: NodeRegisterRequest) -> TokenResponse:
+@router.post("/register", response_model=RegisterResponse)
+async def register(payload: NodeRegisterRequest) -> RegisterResponse:
     """Register centrally and best-effort sync a shadow user to the preferred node."""
     if payload.username == config.ADMIN_USERNAME:
         raise HTTPException(status_code=400, detail="该用户名为保留管理员账号")
+    if config.ALLOW_REGISTER_MODE == "false":
+        raise HTTPException(status_code=403, detail="当前未开放公开注册")
+
+    register_status = (
+        "pending"
+        if config.ALLOW_REGISTER_MODE == "allow_with_permission"
+        else "approved"
+    )
 
     try:
-        create_cluster_user(payload.username, payload.email, payload.password)
+        create_cluster_user(
+            payload.username,
+            payload.email,
+            payload.password,
+            register_status=register_status,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if register_status == "pending":
+        return _build_pending_register_response(
+            payload.username,
+            payload.email,
+            message="注册申请已提交，等待管理员审批后方可登录",
+        )
 
     target_node_id = _resolve_target_node_id(payload.node_id)
     synced = await _sync_cluster_user_to_node(

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
@@ -22,9 +24,20 @@ def _get_session() -> Session:
     return SessionLocal()
 
 
-def create_cluster_user(username: str, email: str, password: str) -> None:
+def create_cluster_user(
+    username: str,
+    email: str,
+    password: str,
+    *,
+    register_status: str = "approved",
+    approved_by: str | None = None,
+) -> None:
     """Create one central user record and fail on username/email conflicts."""
     password_hash = pwd_context.hash(password)
+    approved_at = datetime.utcnow() if register_status == "approved" else None
+    effective_approved_by = (
+        approved_by if register_status != "approved" or approved_by else "system"
+    )
     with _get_session() as db:
         existing_user = db.get(ClusterUser, username)
         if existing_user is not None:
@@ -41,6 +54,9 @@ def create_cluster_user(username: str, email: str, password: str) -> None:
                 username=username,
                 email=email,
                 password_hash=password_hash,
+                register_status=register_status,
+                approved_at=approved_at,
+                approved_by=effective_approved_by,
                 gpu_hours_quota=config.GPU_HOURS_DEFAULT_QUOTA,
                 gpu_hours_last_reset_period=config.current_gpu_hours_reset_period(),
             )
@@ -59,6 +75,9 @@ def upsert_cluster_user(username: str, email: str, password: str) -> None:
                     username=username,
                     email=email,
                     password_hash=password_hash,
+                    register_status="approved",
+                    approved_at=datetime.utcnow(),
+                    approved_by="system",
                     gpu_hours_quota=config.GPU_HOURS_DEFAULT_QUOTA,
                     gpu_hours_last_reset_period=config.current_gpu_hours_reset_period(),
                 )
@@ -78,6 +97,9 @@ def get_cluster_user(username: str) -> dict[str, str | float] | None:
     return {
         "username": str(user.username),
         "email": str(user.email),
+        "register_status": str(user.register_status or "approved"),
+        "approved_at": user.approved_at.isoformat() if user.approved_at else None,
+        "approved_by": str(user.approved_by) if user.approved_by else None,
         "gpu_hours_quota": float(user.gpu_hours_quota or 0.0),
         "gpu_hours_used": float(user.gpu_hours_used or 0.0),
         "gpu_hours_frozen": float(user.gpu_hours_frozen or 0.0),

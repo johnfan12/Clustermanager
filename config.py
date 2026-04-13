@@ -22,6 +22,18 @@ def _parse_csv(raw: str) -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
+def _parse_allow_register_mode(raw: str | None) -> str:
+    """Normalize public registration mode from env to one of three supported values."""
+    normalized = str(raw or "true").strip().lower()
+    if normalized in {"true", "1", "yes", "on"}:
+        return "true"
+    if normalized in {"false", "0", "no", "off"}:
+        return "false"
+    if normalized == "allow_with_permission":
+        return normalized
+    return "true"
+
+
 def _load_nodes_from_env() -> dict:
     """从环境变量加载节点配置（JSON 格式）."""
     nodes_json = os.environ.get("NODES_JSON", "")
@@ -101,6 +113,10 @@ NODES: dict = _load_nodes_from_env() or {
 
 ADMIN_USERNAME: str = os.environ.get("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD: str = os.environ.get("ADMIN_PASSWORD", "admin123")
+ALLOW_REGISTER_MODE: str = _parse_allow_register_mode(
+    os.environ.get("ALLOW_REGISTER", "true")
+)
+ALLOW_REGISTER: bool = ALLOW_REGISTER_MODE != "false"
 
 # 中央用户库（PostgreSQL）
 CLUSTER_DATABASE_URL: str = os.environ.get(

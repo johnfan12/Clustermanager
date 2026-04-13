@@ -89,6 +89,8 @@ export interface AuthNode {
   online: boolean
 }
 
+export type RegisterMode = 'true' | 'false' | 'allow_with_permission'
+
 export interface SshKeyItem {
   id: number
   public_key: string
@@ -101,6 +103,10 @@ export interface AdminUser {
   username: string
   email: string
   is_admin: boolean
+  register_status: 'approved' | 'pending'
+  created_at: string
+  approved_at: string | null
+  approved_by: string | null
   gpu_hours_quota: number
   gpu_hours_used: number
   gpu_hours_frozen: number
@@ -124,6 +130,8 @@ export const useClusterStore = defineStore('cluster', () => {
   const instances = ref<Instance[]>([])
   const authNodes = ref<AuthNode[]>([])
   const appDisplayName = ref('GPU 集群管理')
+  const allowRegister = ref(true)
+  const registerMode = ref<RegisterMode>('true')
   const metadata = ref<Metadata | null>(null)
 
   // Auto-refresh
@@ -223,6 +231,18 @@ export const useClusterStore = defineStore('cluster', () => {
     await api.put(`/api/admin/users/${encodeURIComponent(username)}/quota`, payload)
   }
 
+  async function approveUser(username: string) {
+    return api.post<{ message: string; failed_nodes?: string[] }>(
+      `/api/admin/users/${encodeURIComponent(username)}/approve`
+    )
+  }
+
+  async function deleteUser(username: string) {
+    return api.delete<{ message: string; failed_nodes?: string[] }>(
+      `/api/admin/users/${encodeURIComponent(username)}`
+    )
+  }
+
   async function fetchAdminInstances(nodeId: string): Promise<AdminInstance[]> {
     const data = await api.get<AdminInstance[]>(`/api/proxy/${nodeId}/api/admin/instances`)
     return data || []
@@ -235,15 +255,24 @@ export const useClusterStore = defineStore('cluster', () => {
   // Actions
   async function fetchAuthNodes() {
     try {
-      const data = await api.get<{ nodes: AuthNode[]; app_display_name?: string }>(
+      const data = await api.get<{
+        nodes: AuthNode[]
+        app_display_name?: string
+        allow_register?: boolean
+        allow_register_mode?: RegisterMode
+      }>(
         '/api/auth/nodes',
         { skipAuth: true }
       )
       authNodes.value = Array.isArray(data.nodes) ? data.nodes : []
       appDisplayName.value = data.app_display_name?.trim() || 'GPU 集群管理'
+      allowRegister.value = Boolean(data.allow_register)
+      registerMode.value = data.allow_register_mode || 'true'
     } catch (e) {
       authNodes.value = []
       appDisplayName.value = 'GPU 集群管理'
+      allowRegister.value = false
+      registerMode.value = 'false'
       console.error('节点列表加载失败', e)
     }
   }
@@ -304,6 +333,8 @@ export const useClusterStore = defineStore('cluster', () => {
     instances,
     authNodes,
     appDisplayName,
+    allowRegister,
+    registerMode,
     metadata,
     // actions
     fetchAuthNodes,
@@ -323,6 +354,8 @@ export const useClusterStore = defineStore('cluster', () => {
     // admin actions
     fetchAdminUsers,
     updateUserQuota,
+    approveUser,
+    deleteUser,
     fetchAdminInstances,
     forceDeleteInstance,
     fetchMetadata,
