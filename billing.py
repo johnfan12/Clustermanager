@@ -11,6 +11,7 @@ import httpx
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from auth import create_token
 import config
 from database import SessionLocal
 from models import ClusterGPUHourLedger, ClusterInstanceState, ClusterUser
@@ -404,19 +405,13 @@ async def stop_billing_sync() -> None:
 async def _login_node_admin(
     client: httpx.AsyncClient, node_id: str, node_cfg: dict[str, Any]
 ) -> str:
-    response = await client.post(
-        f"{node_cfg['api']}/api/auth/login",
-        json={
-            "username": config.ADMIN_USERNAME,
-            "password": config.ADMIN_PASSWORD,
-        },
-        timeout=config.PROXY_REQUEST_TIMEOUT_SECONDS,
+    del client
+    del node_cfg
+    token = create_token(
+        username=config.ADMIN_USERNAME,
+        is_admin=True,
+        email=f"{config.ADMIN_USERNAME}@local",
     )
-    response.raise_for_status()
-    payload = response.json()
-    token = payload.get("access_token")
-    if not isinstance(token, str) or not token:
-        raise HTTPException(status_code=502, detail=f"Node {node_id} did not return admin token")
     _node_admin_tokens[node_id] = token
     return token
 
