@@ -555,6 +555,7 @@ const toast = useToastStore()
 const initialLoading = ref(true)
 const gpuHoursRemaining = ref<number | null>(null)
 const createTransitionVisible = ref(false)
+const dashboardVisible = ref(typeof document === 'undefined' || document.visibilityState === 'visible')
 
 const gpuHoursText = computed(() => {
   if (gpuHoursRemaining.value === null) return '加载中...'
@@ -1265,10 +1266,38 @@ async function refreshLogs() {
   }
 }
 
+async function refreshDashboardData() {
+  await clusterStore.fetchAll()
+  await refreshGpuHours()
+}
+
+function syncDashboardPolling() {
+  if (dashboardVisible.value) {
+    clusterStore.startAutoRefresh()
+    if (pendingSshInstances.value.size > 0) {
+      startSshPolling()
+    }
+    return
+  }
+
+  clusterStore.stopAutoRefresh()
+  stopSshPolling()
+}
+
+function handleVisibilityChange() {
+  const visible = document.visibilityState === 'visible'
+  if (dashboardVisible.value === visible) return
+
+  dashboardVisible.value = visible
+  if (visible) {
+    void refreshDashboardData().catch(() => {})
+  }
+  syncDashboardPolling()
+}
+
 onMounted(async () => {
   try {
-    await clusterStore.fetchAll()
-    await refreshGpuHours()
+    await refreshDashboardData()
   } catch {
     toast.error('数据加载失败，请重新登录')
     handleLogout()
@@ -1276,11 +1305,12 @@ onMounted(async () => {
   } finally {
     initialLoading.value = false
   }
-  clusterStore.startAutoRefresh()
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  syncDashboardPolling()
 })
 
 function startSshPolling() {
-  if (sshPollTimer) return
+  if (sshPollTimer || !dashboardVisible.value) return
   sshPollTimer = setInterval(async () => {
     if (pendingSshInstances.value.size === 0) {
       stopSshPolling()
@@ -1331,6 +1361,7 @@ function stopCreateTransition() {
 }
 
 onUnmounted(() => {
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
   clusterStore.stopAutoRefresh()
   stopSshPolling()
   stopCreateTransition()
