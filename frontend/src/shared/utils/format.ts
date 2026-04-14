@@ -16,18 +16,19 @@ export function formatAutoStopTime(value?: string | null): string {
 }
 
 /** 计算距自动停止时间的剩余文字描述 */
-export function autoStopCountdown(value?: string | null): string {
+export function autoStopCountdown(value?: string | null, now = Date.now()): string {
   if (!value) return ''
-  const now = Date.now()
   const target = parseServerDate(value).getTime()
   if (isNaN(target)) return ''
   const diff = target - now
   if (diff <= 0) return '即将停止'
-  const hours = Math.floor(diff / 3600000)
-  const days = Math.floor(hours / 24)
-  const remainHours = hours % 24
-  if (days > 0) return `${days}天${remainHours}小时`
-  return `${hours}小时`
+  const totalMinutes = Math.ceil(diff / 60000)
+  const days = Math.floor(totalMinutes / (24 * 60))
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60)
+  const minutes = totalMinutes % 60
+  if (days > 0) return `${days}天${hours}小时${minutes}分钟`
+  if (hours > 0) return `${hours}小时${minutes}分钟`
+  return `${Math.max(minutes, 1)}分钟`
 }
 
 /** HTML 转义 */

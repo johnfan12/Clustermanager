@@ -135,7 +135,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import type { Instance, NodeStatus } from '@/stores/cluster'
 import { autoStopCountdown } from '@/shared/utils/format'
 import { copyToClipboard } from '@/shared/utils/clipboard'
@@ -154,6 +154,8 @@ const emit = defineEmits<{
 
 const toast = useToastStore()
 const passwordVisible = reactive(new Set<number>())
+const currentTime = ref(Date.now())
+let countdownTimer: ReturnType<typeof setInterval> | null = null
 
 const runningCount = computed(() =>
   props.instances.filter((i) => i.status === 'running').length
@@ -235,16 +237,29 @@ function autoStopTimestamp(value: string): number {
 }
 
 function autoStopCountdownText(inst: Instance): string {
-  const countdown = autoStopCountdown(autoStopAt(inst))
+  const countdown = autoStopCountdown(autoStopAt(inst), currentTime.value)
   return countdown ? `剩余 ${countdown}` : '计时中'
 }
 
 function isAutoStopSoon(inst: Instance): boolean {
   const value = autoStopAt(inst)
   if (inst.status !== 'running' || !value) return false
-  const diff = autoStopTimestamp(value) - Date.now()
+  const diff = autoStopTimestamp(value) - currentTime.value
   return diff > 0 && diff < 24 * 3600 * 1000 // less than 24h
 }
+
+onMounted(() => {
+  countdownTimer = setInterval(() => {
+    currentTime.value = Date.now()
+  }, 30000)
+})
+
+onBeforeUnmount(() => {
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+})
 
 async function handleCopy(text: string, event: MouseEvent) {
   const btn = event.currentTarget as HTMLButtonElement
