@@ -91,6 +91,13 @@
                 >
                   等待节点完成重建
                 </div>
+                <div
+                  v-else-if="instanceErrorText(inst)"
+                  class="power-hint error-detail"
+                  :title="String(inst.last_error || '')"
+                >
+                  {{ instanceErrorText(inst) }}
+                </div>
               </div>
             </td>
             <td>
@@ -195,7 +202,15 @@ function statusText(status: string): string {
   if (status === 'running') return '运行'
   if (status === 'stopped') return '停止'
   if (status === 'rebuilding') return '重建中'
+  if (status === 'start_failed') return '启动失败'
   return '异常'
+}
+
+function instanceErrorText(inst: Instance): string {
+  const raw = String(inst.last_error || '').trim()
+  if (!raw) return ''
+  if (raw.length <= 120) return raw
+  return `${raw.slice(0, 117)}...`
 }
 
 function isOperationLocked(inst: Instance): boolean {
@@ -434,6 +449,14 @@ tbody tr:last-child td { border-bottom: none; }
 
 .rebuilding-hint {
   color: var(--color-warning, #9a6b00);
+}
+
+.error-detail {
+  max-width: 280px;
+  color: var(--color-danger);
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 /* SSH cell */

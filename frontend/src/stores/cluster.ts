@@ -57,7 +57,9 @@ export interface Instance {
   last_snapshot_image_name?: string | null
   last_snapshot_at?: string | null
   snapshot_status?: 'none' | 'creating' | 'ready' | 'failed'
-  status: 'running' | 'stopped' | 'rebuilding' | 'error'
+  status: 'running' | 'stopped' | 'rebuilding' | 'error' | 'start_failed'
+  last_exit_code?: number | null
+  last_error?: string | null
   ssh_command?: string
   ssh_cmd?: string
   vps_access: VpsAccess | null

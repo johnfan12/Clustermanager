@@ -86,14 +86,17 @@
               </div>
               <span :class="['status-badge', inst.status]">{{ statusText(inst.status) }}</span>
             </div>
-          <div class="item-meta">
-            {{ inst.username || '-' }} ·
-            GPU {{ inst.gpu_indices?.length || 0 }} 张 ·
-            {{ inst.memory_gb }}G 内存
-          </div>
-          <div class="item-actions">
-            <button class="action-link danger" @click="confirmForceDelete(inst)">强制删除</button>
-          </div>
+            <div class="item-meta">
+              {{ inst.username || '-' }} ·
+              GPU {{ inst.gpu_indices?.length || 0 }} 张 ·
+              {{ inst.memory_gb }}G 内存
+            </div>
+            <div v-if="inst.last_error" class="item-meta error-meta" :title="inst.last_error">
+              {{ truncatedError(inst.last_error) }}
+            </div>
+            <div class="item-actions">
+              <button class="action-link danger" @click="confirmForceDelete(inst)">强制删除</button>
+            </div>
         </div>
       </div>
     </div>
@@ -218,7 +221,15 @@ function statusText(status: string): string {
   if (status === 'running') return '运行中'
   if (status === 'stopped') return '已停止'
   if (status === 'rebuilding') return '重建中'
+  if (status === 'start_failed') return '启动失败'
   return '异常'
+}
+
+function truncatedError(value: string | null | undefined): string {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  if (text.length <= 140) return text
+  return `${text.slice(0, 137)}...`
 }
 
 function instanceLabel(instance: AdminInstance | null): string {
@@ -537,6 +548,17 @@ onMounted(() => {
 .status-badge.error {
   background: var(--color-danger-bg);
   color: var(--color-danger);
+}
+
+.status-badge.start_failed {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.error-meta {
+  color: var(--color-danger);
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 /* Form styles */
