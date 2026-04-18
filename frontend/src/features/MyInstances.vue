@@ -5,6 +5,15 @@
       <span class="section-summary">共 {{ runningCount }} 个运行中</span>
     </div>
 
+    <div
+      v-if="autoStopBanner"
+      class="auto-stop-banner"
+      :class="`auto-stop-banner-${autoStopBanner.level}`"
+    >
+      <strong>自动停止提醒</strong>
+      <span>{{ autoStopBanner.text }}</span>
+    </div>
+
     <div class="table-wrap">
       <table>
         <thead>
@@ -66,7 +75,7 @@
               <span v-else>—</span>
             </td>
             <td>
-              <div class="status-cell" :class="{ 'auto-stop-warning': isAutoStopSoon(inst) }">
+              <div class="status-cell" :class="autoStopLevelClass(inst)">
                 <div class="status-summary">
                   <span :class="statusClass(inst.status)">
                     <span class="status-dot" aria-hidden="true" />
@@ -78,6 +87,13 @@
                   >
                     {{ autoStopCountdownText(inst) }}
                   </div>
+                  <span
+                    v-if="autoStopAlertLabel(inst)"
+                    class="auto-stop-badge"
+                    :class="`auto-stop-badge-${autoStopLevel(inst)}`"
+                  >
+                    {{ autoStopAlertLabel(inst) }}
+                  </span>
                   <div
                     v-else-if="inst.status === 'stopped'"
                     :class="powerHintClass(inst)"
@@ -90,6 +106,13 @@
                   class="power-hint rebuilding-hint"
                 >
                   等待节点完成重建
+                </div>
+                <div
+                  v-else-if="autoStopAlertText(inst)"
+                  class="power-hint auto-stop-hint"
+                  :class="`auto-stop-hint-${autoStopLevel(inst)}`"
+                >
+                  {{ autoStopAlertText(inst) }}
                 </div>
                 <div
                   v-else-if="instanceErrorText(inst)"
@@ -142,7 +165,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import type { Instance, NodeStatus } from '@/stores/cluster'
 import { autoStopCountdown } from '@/shared/utils/format'
 import { copyToClipboard } from '@/shared/utils/clipboard'
@@ -162,7 +185,12 @@ const emit = defineEmits<{
 const toast = useToastStore()
 const passwordVisible = reactive(new Set<number>())
 const currentTime = ref(Date.now())
+const notifiedAutoStopWarnings = new Set<string>()
 let countdownTimer: ReturnType<typeof setInterval> | null = null
+
+const AUTO_STOP_SOON_MS = 24 * 3600 * 1000
+const AUTO_STOP_WARNING_MS = 60 * 3600 * 1000
+const AUTO_STOP_CRITICAL_MS = 15 * 60 * 1000
 
 const runningCount = computed(() =>
   props.instances.filter((i) => i.status === 'running').length
@@ -256,11 +284,94 @@ function autoStopCountdownText(inst: Instance): string {
   return countdown ? `剩余 ${countdown}` : '计时中'
 }
 
-function isAutoStopSoon(inst: Instance): boolean {
+function autoStopDiffMs(inst: Instance): number | null {
   const value = autoStopAt(inst)
-  if (inst.status !== 'running' || !value) return false
+  if (inst.status !== 'running' || !value) return null
   const diff = autoStopTimestamp(value) - currentTime.value
-  return diff > 0 && diff < 24 * 3600 * 1000 // less than 24h
+  return diff > 0 ? diff : null
+}
+
+function autoStopLevel(inst: Instance): 'critical' | 'warning' | 'soon' | null {
+  const diff = autoStopDiffMs(inst)
+  if (diff == null) return null
+  if (diff <= AUTO_STOP_CRITICAL_MS) return 'critical'
+  if (diff <= AUTO_STOP_WARNING_MS) return 'warning'
+  if (diff <= AUTO_STOP_SOON_MS) return 'soon'
+  return null
+}
+
+function autoStopLevelClass(inst: Instance): string {
+  const level = autoStopLevel(inst)
+  return level ? `auto-stop-${level}` : ''
+}
+
+function autoStopAlertLabel(inst: Instance): string {
+  const level = autoStopLevel(inst)
+  if (level === 'critical') return '紧急'
+  if (level === 'warning') return '快到期'
+  if (level === 'soon') return '24h 内'
+  return ''
+}
+
+function autoStopAlertText(inst: Instance): string {
+  const level = autoStopLevel(inst)
+  if (level === 'critical') return '不足 15 分钟，将自动停止，请立即点击“定时”延长运行时间。'
+  if (level === 'warning') return '不足 1 小时，将自动停止，建议尽快续期。'
+  if (level === 'soon') return '24 小时内会自动停止，如需持续运行请提前续期。'
+  return ''
+}
+
+const expiringInstances = computed(() =>
+  props.instances
+    .map((inst) => ({
+      inst,
+      diff: autoStopDiffMs(inst),
+      level: autoStopLevel(inst)
+    }))
+    .filter(
+      (item): item is { inst: Instance; diff: number; level: 'critical' | 'warning' | 'soon' } =>
+        item.diff != null && item.level != null
+    )
+    .sort((a, b) => a.diff - b.diff)
+)
+
+const autoStopBanner = computed(() => {
+  const items = expiringInstances.value
+  if (!items.length) return null
+
+  const criticalCount = items.filter((item) => item.level === 'critical').length
+  const warningCount = items.filter((item) => item.level === 'warning').length
+  const names = items.slice(0, 3).map((item) => instanceLabel(item.inst)).join('、')
+  const suffix = items.length > 3 ? ` 等 ${items.length} 个实例` : names
+
+  if (criticalCount > 0) {
+    return {
+      level: 'critical' as const,
+      text: `${suffix}将在 15 分钟内自动停止，请立即处理。`
+    }
+  }
+  if (warningCount > 0) {
+    return {
+      level: 'warning' as const,
+      text: `${suffix}将在 1 小时内自动停止，建议尽快续期。`
+    }
+  }
+  return {
+    level: 'soon' as const,
+    text: `${suffix}将在 24 小时内自动停止，可提前安排续期。`
+  }
+})
+
+function maybeNotifyAutoStopWarnings() {
+  for (const item of expiringInstances.value) {
+    if (item.level === 'soon') continue
+    const key = `${item.inst.node_id}:${item.inst.id}:${autoStopAt(item.inst)}:${item.level}`
+    if (notifiedAutoStopWarnings.has(key)) continue
+    notifiedAutoStopWarnings.add(key)
+
+    const prefix = item.level === 'critical' ? '实例即将自动停止' : '实例快到自动停止时间了'
+    toast.warning(`${prefix}：${instanceLabel(item.inst)}，${autoStopCountdownText(item.inst)}。`)
+  }
 }
 
 onMounted(() => {
@@ -275,6 +386,10 @@ onBeforeUnmount(() => {
     countdownTimer = null
   }
 })
+
+watch(expiringInstances, () => {
+  maybeNotifyAutoStopWarnings()
+}, { immediate: true })
 
 async function handleCopy(text: string, event: MouseEvent) {
   const btn = event.currentTarget as HTMLButtonElement
@@ -326,6 +441,35 @@ function isPendingSsh(instance: Instance): boolean {
 .section-summary {
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
+}
+
+.auto-stop-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.auto-stop-banner strong {
+  flex: 0 0 auto;
+}
+
+.auto-stop-banner-soon {
+  background: var(--color-warning-bg);
+  color: #6b5a00;
+}
+
+.auto-stop-banner-warning {
+  background: #ffe7b8;
+  color: #7a4f00;
+}
+
+.auto-stop-banner-critical {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
 }
 
 .table-wrap { overflow-x: auto; }
@@ -540,15 +684,6 @@ tbody tr:last-child td { border-bottom: none; }
 
 .pwd-toggle:hover { color: var(--color-primary); }
 
-/* Auto-stop warning */
-.auto-stop-warning {
-  color: var(--color-danger);
-}
-
-.auto-stop-warning .countdown {
-  font-weight: var(--font-weight-medium);
-}
-
 .countdown {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
@@ -558,6 +693,68 @@ tbody tr:last-child td { border-bottom: none; }
 .status-summary .countdown,
 .status-summary .power-hint {
   margin-top: 0;
+}
+
+.auto-stop-soon .countdown,
+.auto-stop-warning .countdown,
+.auto-stop-critical .countdown {
+  font-weight: var(--font-weight-medium);
+}
+
+.auto-stop-soon .countdown {
+  color: #8a6d00;
+}
+
+.auto-stop-warning .countdown {
+  color: #9a6700;
+}
+
+.auto-stop-critical .countdown {
+  color: var(--color-danger);
+}
+
+.auto-stop-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.auto-stop-badge-soon {
+  background: var(--color-warning-bg);
+  color: #8a6d00;
+}
+
+.auto-stop-badge-warning {
+  background: #ffe7b8;
+  color: #8a5200;
+}
+
+.auto-stop-badge-critical {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.auto-stop-hint {
+  white-space: normal;
+  max-width: 320px;
+}
+
+.auto-stop-hint-soon {
+  color: #8a6d00;
+}
+
+.auto-stop-hint-warning {
+  color: #8a5200;
+}
+
+.auto-stop-hint-critical {
+  color: var(--color-danger);
+  font-weight: var(--font-weight-medium);
 }
 
 .auto-stop-heading {
