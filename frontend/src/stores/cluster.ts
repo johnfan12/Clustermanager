@@ -186,6 +186,10 @@ export const useClusterStore = defineStore('cluster', () => {
     await api.post(`/api/proxy/${nodeId}/api/instances/${instanceId}/rebuild`, payload)
   }
 
+  async function repairInstance(nodeId: string, instanceId: number) {
+    await api.post(`/api/proxy/${nodeId}/api/instances/${instanceId}/repair`)
+  }
+
   async function getInstanceLogs(nodeId: string, instanceId: number): Promise<string> {
     const data = await api.get<{ logs: string }>(
       `/api/proxy/${nodeId}/api/instances/${instanceId}/logs`
@@ -352,6 +356,7 @@ export const useClusterStore = defineStore('cluster', () => {
     deleteInstance,
     renewInstance,
     rebuildInstance,
+    repairInstance,
     getInstanceLogs,
     // admin actions
     fetchAdminUsers,

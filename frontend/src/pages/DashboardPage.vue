@@ -360,6 +360,35 @@
       </template>
     </AppModal>
 
+    <!-- Repair Modal -->
+    <AppModal
+      v-model:visible="modals.repair"
+      title="修复系统"
+      size="sm"
+    >
+      <div class="danger-panel">
+        <p>
+          将使用实例 <strong>{{ instanceDisplayName(selectedInstance) }}</strong> 的原始基础镜像重新创建系统环境。
+        </p>
+        <p class="hint">
+          会保留挂载在 <code>/root/workspace</code> 的数据，但容器系统层里的内容会丢失。
+        </p>
+        <p class="hint">
+          例如通过 <code>apt</code>/<code>pip</code>/<code>npm</code>/系统配置写入到 workspace 之外的内容，都不会被保留。
+        </p>
+      </div>
+      <template #footer>
+        <AppButton variant="secondary" @click="modals.repair = false">取消</AppButton>
+        <AppButton
+          variant="danger"
+          :loading="loading.repair"
+          @click="handleRepairConfirm"
+        >
+          确认修复
+        </AppButton>
+      </template>
+    </AppModal>
+
     <!-- Delete Modal -->
     <AppModal
       v-model:visible="modals.delete"
@@ -568,6 +597,7 @@ const modals = reactive({
   restart: false,
   renew: false,
   rebuild: false,
+  repair: false,
   delete: false,
   logs: false,
   sshKeys: false
@@ -579,6 +609,7 @@ const loading = reactive({
   restart: false,
   renew: false,
   rebuild: false,
+  repair: false,
   delete: false,
   logs: false,
   sshKeys: false,
@@ -1014,6 +1045,9 @@ function handleInstanceAction(action: string, instance: Instance) {
     case 'rebuild':
       void openRebuildModal(instance)
       break
+    case 'repair':
+      modals.repair = true
+      break
     case 'delete':
       deleteConfirmName.value = ''
       modals.delete = true
@@ -1182,6 +1216,37 @@ async function handleRebuild() {
     loading.rebuild = false
     if (rebuildKey) {
       pendingRebuildInstances.value.delete(rebuildKey)
+    }
+  }
+}
+
+async function handleRepairConfirm() {
+  if (!selectedInstance.value) return
+  if (isInstanceRebuilding(selectedInstance.value)) {
+    toast.warning('实例正在重建中，请等待节点完成后再试')
+    return
+  }
+
+  loading.repair = true
+  const repairKey = instanceOperationKey(selectedInstance.value)
+  try {
+    if (repairKey) {
+      pendingRebuildInstances.value.add(repairKey)
+    }
+    await clusterStore.repairInstance(
+      selectedInstance.value.node_id,
+      Number(selectedInstance.value.id)
+    )
+    toast.success('实例已使用基础镜像完成修复')
+    modals.repair = false
+    await clusterStore.fetchAll()
+    await refreshGpuHours()
+  } catch (e: any) {
+    toast.error(e.message || '修复失败')
+  } finally {
+    loading.repair = false
+    if (repairKey) {
+      pendingRebuildInstances.value.delete(repairKey)
     }
   }
 }

@@ -133,6 +133,8 @@ def _proxy_timeout_seconds(normalized_path: str) -> float:
     """
     if normalized_path.startswith("/api/instances/") and normalized_path.endswith("/rebuild"):
         return config.PROXY_LONG_REQUEST_TIMEOUT_SECONDS
+    if normalized_path.startswith("/api/instances/") and normalized_path.endswith("/repair"):
+        return config.PROXY_LONG_REQUEST_TIMEOUT_SECONDS
     return config.PROXY_REQUEST_TIMEOUT_SECONDS
 
 
@@ -194,6 +196,8 @@ def _should_force_user_sync_before_proxy(method: str, normalized_path: str) -> b
     if normalized_path == "/api/instances":
         return True
     if normalized_path.startswith("/api/instances/") and normalized_path.endswith("/rebuild"):
+        return True
+    if normalized_path.startswith("/api/instances/") and normalized_path.endswith("/repair"):
         return True
     return False
 
@@ -405,6 +409,24 @@ async def _precheck_central_billing(
             )
             if state is not None and requested_gpu_count == int(state.gpu_count):
                 requested_gpu_count = 0
+    elif (
+        method == "POST"
+        and normalized_path.startswith("/api/instances/")
+        and normalized_path.endswith("/repair")
+    ):
+        instance_id = _parse_proxy_instance_id(normalized_path)
+        if instance_id is None:
+            return
+        state = (
+            db.query(ClusterInstanceState)
+            .filter(
+                ClusterInstanceState.node_id == request.path_params["node_id"],
+                ClusterInstanceState.node_instance_id == instance_id,
+                ClusterInstanceState.username == username,
+            )
+            .first()
+        )
+        requested_gpu_count = int(state.gpu_count) if state is not None else 0
 
     if requested_gpu_count > 0:
         ensure_gpu_hours_available(db, username, requested_gpu_count)
@@ -517,6 +539,39 @@ def _handle_central_billing_after_proxy(
             username=username,
             container_name=str(response_payload.get("container_name") or ""),
             gpu_count=response_gpu_count,
+            status=str(response_payload.get("status") or "running"),
+        )
+    elif (
+        method == "POST"
+        and normalized_path.startswith("/api/instances/")
+        and normalized_path.endswith("/repair")
+        and response_payload
+    ):
+        instance_id = _parse_proxy_instance_id(normalized_path)
+        if instance_id is None:
+            return
+        state = (
+            db.query(ClusterInstanceState)
+            .filter(
+                ClusterInstanceState.node_id == node_id,
+                ClusterInstanceState.node_instance_id == instance_id,
+            )
+            .first()
+        )
+        gpu_count = _extract_gpu_count_from_response(
+            response_payload,
+            int(state.gpu_count) if state is not None else 0,
+        )
+        activate_instance_state(
+            db,
+            node_id=node_id,
+            node_instance_id=instance_id,
+            username=str(state.username) if state is not None else username,
+            container_name=str(
+                response_payload.get("container_name")
+                or (state.container_name if state is not None else "")
+            ),
+            gpu_count=gpu_count,
             status=str(response_payload.get("status") or "running"),
         )
     elif (

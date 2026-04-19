@@ -146,6 +146,12 @@
                   @click="handleAction('rebuild', inst)"
                 >变更配置</button>
                 <button
+                  v-if="isRepairable(inst)"
+                  class="op-btn"
+                  :disabled="isOperationLocked(inst)"
+                  @click="handleAction('repair', inst)"
+                >修复系统</button>
+                <button
                   class="op-btn"
                   :disabled="isOperationLocked(inst)"
                   @click="handleAction('logs', inst)"
@@ -243,6 +249,10 @@ function instanceErrorText(inst: Instance): string {
 
 function isOperationLocked(inst: Instance): boolean {
   return inst.status === 'rebuilding'
+}
+
+function isRepairable(inst: Instance): boolean {
+  return inst.status === 'error' || inst.status === 'start_failed'
 }
 
 function canStartInstance(inst: Instance): boolean {
