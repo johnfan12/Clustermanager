@@ -195,7 +195,7 @@ const notifiedAutoStopWarnings = new Set<string>()
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 
 const AUTO_STOP_SOON_MS = 24 * 3600 * 1000
-const AUTO_STOP_WARNING_MS = 60 * 3600 * 1000
+const AUTO_STOP_WARNING_MS = 1 * 3600 * 1000
 const AUTO_STOP_CRITICAL_MS = 15 * 60 * 1000
 
 const runningCount = computed(() =>
