@@ -69,7 +69,7 @@ def _extract_ports_from_nodes(nodes: dict) -> tuple[int, ...]:
 
 JWT_SECRET: str = os.environ.get("JWT_SECRET", "change-this-secret")
 JWT_ALGORITHM: str = os.environ.get("JWT_ALGORITHM", "HS256")
-JWT_EXPIRE_HOURS: int = int(os.environ.get("JWT_EXPIRE_HOURS", "24"))
+JWT_EXPIRE_HOURS: int = int(os.environ.get("JWT_EXPIRE_HOURS", "168"))
 
 ENV: str = os.environ.get("ENV", "dev").lower()
 APP_DISPLAY_NAME: str = os.environ.get("APP_DISPLAY_NAME", "GPU 集群管理").strip()

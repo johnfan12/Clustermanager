@@ -78,6 +78,7 @@ CLUSTER_DATABASE_URL=postgresql+psycopg://cluster_user:cluster_pass@127.0.0.1:54
 GPU_HOURS_DEFAULT_QUOTA=100
 GPU_HOURS_RESET_TIMEZONE=Asia/Shanghai
 JWT_SECRET=your-jwt-secret
+JWT_EXPIRE_HOURS=168
 INTERNAL_SERVICE_TOKEN=your-internal-token
 FRP_TOKEN=your-frp-token
 ```
@@ -151,6 +152,7 @@ alembic upgrade head
 
 - `APP_DISPLAY_NAME`：登录页顶部展示名称，可替换为你的组织名或平台名
 - `JWT_SECRET`：需与所有 Servermanager 保持一致
+- `JWT_EXPIRE_HOURS`：登录会话有效期，默认 `168` 小时（7 天）；修改后需重启 Clustermanager 并重新登录才会签发新时长 token
 - `INTERNAL_SERVICE_TOKEN`：需与所有 Servermanager 保持一致
 - `NODES_JSON`：节点 API 地址与展示信息
 - `FRP_TOKEN`：与 frps 一致
