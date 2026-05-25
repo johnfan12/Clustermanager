@@ -278,12 +278,12 @@ function showTechnicalName(instance: AdminInstance | null): boolean {
 
 function canRemountInstance(instance: AdminInstance | null): boolean {
   if (!instance) return false
-  return instance.status !== 'running' && instance.status !== 'rebuilding'
+  return instance.status !== 'running'
 }
 
 function remountButtonTitle(instance: AdminInstance): string {
   if (instance.status === 'running') return '请先停止实例再刷新挂载'
-  if (instance.status === 'rebuilding') return '实例正在重建中'
+  if (instance.status === 'rebuilding') return '如果长时间卡在重建，可再次触发刷新挂载恢复'
   return '刷新该实例的 workspace 挂载来源'
 }
 
@@ -379,7 +379,7 @@ async function handleRemountWorkspace() {
   remountingInstanceId.value = instanceId
   try {
     await clusterStore.remountInstanceWorkspace(selectedNodeId.value, instanceId)
-    toast.success('实例挂载已刷新')
+    toast.success('已开始刷新实例挂载')
     modals.instanceRemount = false
     await loadAdminData()
     await clusterStore.fetchAll()
