@@ -135,6 +135,11 @@ def _proxy_timeout_seconds(normalized_path: str) -> float:
         return config.PROXY_LONG_REQUEST_TIMEOUT_SECONDS
     if normalized_path.startswith("/api/instances/") and normalized_path.endswith("/repair"):
         return config.PROXY_LONG_REQUEST_TIMEOUT_SECONDS
+    if (
+        normalized_path.startswith("/api/admin/instances/")
+        and normalized_path.endswith("/remount-workspace")
+    ):
+        return config.PROXY_LONG_REQUEST_TIMEOUT_SECONDS
     return config.PROXY_REQUEST_TIMEOUT_SECONDS
 
 

@@ -258,6 +258,15 @@ export const useClusterStore = defineStore('cluster', () => {
     await api.delete(`/api/proxy/${nodeId}/api/admin/instances/${instanceId}`)
   }
 
+  async function remountInstanceWorkspace(
+    nodeId: string,
+    instanceId: number
+  ): Promise<AdminInstance> {
+    return api.post<AdminInstance>(
+      `/api/proxy/${nodeId}/api/admin/instances/${instanceId}/remount-workspace`
+    )
+  }
+
   // Actions
   async function fetchAuthNodes() {
     try {
@@ -365,6 +374,7 @@ export const useClusterStore = defineStore('cluster', () => {
     deleteUser,
     fetchAdminInstances,
     forceDeleteInstance,
+    remountInstanceWorkspace,
     fetchMetadata,
     fetchNodeImages,
     fetchSshKeys,

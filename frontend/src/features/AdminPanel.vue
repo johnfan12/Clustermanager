@@ -95,6 +95,14 @@
               {{ truncatedError(inst.last_error) }}
             </div>
             <div class="item-actions">
+              <button
+                class="action-link"
+                :disabled="!canRemountInstance(inst) || remountingInstanceId === Number(inst.id)"
+                :title="remountButtonTitle(inst)"
+                @click="confirmRemountWorkspace(inst)"
+              >
+                {{ remountingInstanceId === Number(inst.id) ? '刷新中' : '刷新挂载' }}
+              </button>
               <button class="action-link danger" @click="confirmForceDelete(inst)">强制删除</button>
             </div>
         </div>
@@ -138,6 +146,32 @@
       </template>
     </AppModal>
 
+    <!-- Instance Remount Modal -->
+    <AppModal v-model:visible="modals.instanceRemount" title="刷新实例挂载" size="sm">
+      <div class="maintenance-panel">
+        <p>确认刷新实例 <strong>{{ instanceLabel(selectedInstance) }}</strong> 的 workspace 挂载吗？</p>
+        <p v-if="showTechnicalName(selectedInstance)" class="hint">
+          系统容器名：<code>{{ selectedInstance?.container_name }}</code>
+        </p>
+        <p class="hint">
+          该操作会为停机实例创建快照并重建同名容器，将 <code>/root/workspace</code> 刷新到当前节点的
+          <code>DATA_DIR</code>。
+        </p>
+        <p class="hint">运行中的实例需要先停止。</p>
+      </div>
+      <template #footer>
+        <AppButton variant="secondary" @click="modals.instanceRemount = false">取消</AppButton>
+        <AppButton
+          variant="primary"
+          :loading="remountingInstanceId === Number(selectedInstance?.id)"
+          :disabled="!selectedInstance || !canRemountInstance(selectedInstance)"
+          @click="handleRemountWorkspace"
+        >
+          确认刷新
+        </AppButton>
+      </template>
+    </AppModal>
+
     <!-- User Delete Modal -->
     <AppModal v-model:visible="modals.userDelete" title="确认删除用户" size="sm">
       <div class="danger-panel">
@@ -177,6 +211,7 @@ const allInstances = ref<AdminInstance[]>([])
 const modals = reactive({
   quota: false,
   instanceDelete: false,
+  instanceRemount: false,
   userDelete: false
 })
 
@@ -189,6 +224,7 @@ const loading = reactive({
 
 const selectedUser = ref<AdminUser | null>(null)
 const selectedInstance = ref<AdminInstance | null>(null)
+const remountingInstanceId = ref<number | null>(null)
 
 const quotaForm = reactive({
   gpuHours: 100
@@ -238,6 +274,17 @@ function instanceLabel(instance: AdminInstance | null): string {
 
 function showTechnicalName(instance: AdminInstance | null): boolean {
   return Boolean(instance?.display_name && instance.display_name !== instance.container_name)
+}
+
+function canRemountInstance(instance: AdminInstance | null): boolean {
+  if (!instance) return false
+  return instance.status !== 'running' && instance.status !== 'rebuilding'
+}
+
+function remountButtonTitle(instance: AdminInstance): string {
+  if (instance.status === 'running') return '请先停止实例再刷新挂载'
+  if (instance.status === 'rebuilding') return '实例正在重建中'
+  return '刷新该实例的 workspace 挂载来源'
 }
 
 async function loadAdminData() {
@@ -318,6 +365,29 @@ async function handleDeleteUser() {
 function confirmForceDelete(inst: AdminInstance) {
   selectedInstance.value = inst
   modals.instanceDelete = true
+}
+
+function confirmRemountWorkspace(inst: AdminInstance) {
+  selectedInstance.value = inst
+  modals.instanceRemount = true
+}
+
+async function handleRemountWorkspace() {
+  if (!selectedNodeId.value || !selectedInstance.value || !canRemountInstance(selectedInstance.value)) return
+
+  const instanceId = Number(selectedInstance.value.id)
+  remountingInstanceId.value = instanceId
+  try {
+    await clusterStore.remountInstanceWorkspace(selectedNodeId.value, instanceId)
+    toast.success('实例挂载已刷新')
+    modals.instanceRemount = false
+    await loadAdminData()
+    await clusterStore.fetchAll()
+  } catch (e: any) {
+    toast.error(e.message || '刷新挂载失败')
+  } finally {
+    remountingInstanceId.value = null
+  }
 }
 
 async function handleForceDelete() {
@@ -616,5 +686,27 @@ onMounted(() => {
 .danger-panel .hint {
   font-size: var(--font-size-xs);
   opacity: 0.8;
+}
+
+.maintenance-panel {
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-alt);
+}
+
+.maintenance-panel p {
+  margin: 0 0 8px;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.maintenance-panel p:last-child {
+  margin-bottom: 0;
+}
+
+.maintenance-panel .hint {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
 }
 </style>
