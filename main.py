@@ -125,21 +125,31 @@ def _sanitize_proxy_headers(request: Request, user_token: str) -> dict[str, str]
     return headers
 
 
-def _proxy_timeout_seconds(normalized_path: str) -> float:
+def _proxy_timeout_seconds(normalized_path: str, method: str = "GET") -> float:
     """Select proxy timeout by API path.
 
-    Rebuild is a long-running operation (backup + recreate container),
-    so it needs a longer timeout than regular read/write requests.
+    Container lifecycle operations can spend a long time in Docker or snapshot work,
+    so they need a longer timeout than regular read/write requests.
     """
-    if normalized_path.startswith("/api/instances/") and normalized_path.endswith("/rebuild"):
+    method = method.upper()
+    if method == "POST" and normalized_path == "/api/instances":
         return config.PROXY_LONG_REQUEST_TIMEOUT_SECONDS
-    if normalized_path.startswith("/api/instances/") and normalized_path.endswith("/repair"):
+    if normalized_path.startswith("/api/instances/") and any(
+        normalized_path.endswith(suffix)
+        for suffix in ("/rebuild", "/repair", "/restart", "/stop")
+    ):
         return config.PROXY_LONG_REQUEST_TIMEOUT_SECONDS
     if (
         normalized_path.startswith("/api/admin/instances/")
         and normalized_path.endswith("/remount-workspace")
     ):
         return config.PROXY_LONG_REQUEST_TIMEOUT_SECONDS
+    instance_prefixes = ("/api/instances/", "/api/admin/instances/")
+    for prefix in instance_prefixes:
+        if method == "DELETE" and normalized_path.startswith(prefix):
+            tail = normalized_path[len(prefix) :]
+            if tail.split("/", 1)[0].isdigit():
+                return config.PROXY_LONG_REQUEST_TIMEOUT_SECONDS
     return config.PROXY_REQUEST_TIMEOUT_SECONDS
 
 
@@ -519,16 +529,26 @@ def _handle_central_billing_after_proxy(
             response_payload,
             requested_gpu_count,
         )
+        response_status = str(response_payload.get("status") or "running")
         if state is not None and requested_gpu_count == int(state.gpu_count):
+            state.container_name = str(
+                response_payload.get("container_name") or state.container_name
+            )
+            if response_status != "running":
+                settle_and_deactivate_instance(
+                    db,
+                    node_id=node_id,
+                    node_instance_id=instance_id,
+                    reason="rebuild",
+                    status=response_status,
+                )
+                return
             was_running = str(state.status) == "running"
-            state.container_name = str(response_payload.get("container_name") or state.container_name)
-            state.status = str(response_payload.get("status") or state.status)
+            state.status = response_status
             state.node_online = True
             state.last_seen_at = datetime.utcnow()
-            if state.status == "running" and not was_running:
+            if not was_running:
                 state.last_billed_at = state.last_seen_at
-            elif state.status != "running":
-                state.last_billed_at = None
             return
         settle_and_deactivate_instance(
             db,
@@ -544,7 +564,7 @@ def _handle_central_billing_after_proxy(
             username=username,
             container_name=str(response_payload.get("container_name") or ""),
             gpu_count=response_gpu_count,
-            status=str(response_payload.get("status") or "running"),
+            status=response_status,
         )
     elif (
         method == "POST"
@@ -1376,7 +1396,7 @@ async def create_agent_session(
             "/api/instances",
             user_token,
             username,
-            timeout=_proxy_timeout_seconds("/api/instances"),
+            timeout=_proxy_timeout_seconds("/api/instances", "POST"),
             is_admin=user_is_admin,
             headers={"Authorization": f"Bearer {user_token}"},
             json_body={
@@ -1489,7 +1509,8 @@ async def rebuild_agent_session(
             if not isinstance(rebuild_instance, dict):
                 raise HTTPException(status_code=502, detail="Invalid node rebuild response.")
 
-            if payload.auto_restart and str(rebuild_instance.get("status") or "") != "running":
+            rebuild_status = str(rebuild_instance.get("status") or "")
+            if payload.auto_restart and rebuild_status not in {"running", "rebuilding"}:
                 restart_response = await _request_node_as_user(
                     client,
                     str(session.node_id),
@@ -1844,7 +1865,7 @@ async def proxy(
     )
 
     try:
-        timeout_seconds = _proxy_timeout_seconds(normalized_path)
+        timeout_seconds = _proxy_timeout_seconds(normalized_path, method)
         async with httpx.AsyncClient() as client:
             if _should_force_user_sync_before_proxy(method, normalized_path):
                 synced = await _sync_cluster_user_to_node(

@@ -1206,7 +1206,7 @@ async function handleRebuild() {
         memory_gb: rebuildForm.memoryGb
       }
     )
-    toast.success('实例已按新配置重建')
+    toast.success('已开始变更实例配置')
     modals.rebuild = false
     await clusterStore.fetchAll()
     await refreshGpuHours()
@@ -1237,7 +1237,7 @@ async function handleRepairConfirm() {
       selectedInstance.value.node_id,
       Number(selectedInstance.value.id)
     )
-    toast.success('实例已使用基础镜像完成修复')
+    toast.success('已开始修复实例系统')
     modals.repair = false
     await clusterStore.fetchAll()
     await refreshGpuHours()
