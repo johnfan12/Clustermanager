@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, field_validator
 
 from auth import (
@@ -44,11 +45,20 @@ INTERNAL_SERVICE_TOKEN = os.environ.get("SIMPLE_INTERNAL_SERVICE_TOKEN") or os.e
 )
 REQUEST_TIMEOUT = float(os.environ.get("SIMPLE_NODE_REQUEST_TIMEOUT", "12"))
 AUTH_MODE = os.environ.get("SIMPLE_AUTH_MODE", "local").strip().lower()
+AUTH_REQUIRED = AUTH_MODE != "none"
+NO_AUTH_USERNAME = (
+    os.environ.get("SIMPLE_NO_AUTH_USERNAME")
+    or os.environ.get("SIMPLE_DEFAULT_USERNAME")
+    or os.environ.get("USER")
+    or "tunnel"
+).strip()
+NO_AUTH_IS_ADMIN = os.environ.get("SIMPLE_NO_AUTH_IS_ADMIN", "true").lower() == "true"
 CORS_ALLOW_ORIGINS = [
     item.strip()
     for item in os.environ.get("SIMPLE_CORS_ALLOW_ORIGINS", "http://localhost:9999").split(",")
     if item.strip()
 ]
+console_security = HTTPBearer(auto_error=False)
 
 
 class LoginRequest(BaseModel):
@@ -247,11 +257,27 @@ async def _authenticate_node_user(username: str, password: str) -> Principal:
 
 
 async def _authenticate_console_user(username: str, password: str) -> Principal:
+    if AUTH_MODE == "none":
+        return _no_auth_principal()
     if AUTH_MODE == "node":
         return await _authenticate_node_user(username, password)
     if AUTH_MODE != "local":
         raise HTTPException(status_code=500, detail=f"Unsupported SIMPLE_AUTH_MODE: {AUTH_MODE}")
     return authenticate_local_user(username, password)
+
+
+def _no_auth_principal() -> Principal:
+    if not NO_AUTH_USERNAME:
+        raise HTTPException(status_code=500, detail="SIMPLE_NO_AUTH_USERNAME is empty.")
+    return Principal(username=NO_AUTH_USERNAME, is_admin=NO_AUTH_IS_ADMIN)
+
+
+def get_console_principal(
+    credentials: HTTPAuthorizationCredentials | None = Depends(console_security),
+) -> Principal:
+    if AUTH_MODE == "none":
+        return _no_auth_principal()
+    return get_current_principal(credentials)
 
 
 INDEX_HTML = """
@@ -601,6 +627,7 @@ INDEX_HTML = """
   </section>
 
   <script>
+    const AUTH_REQUIRED = __AUTH_REQUIRED__;
     const state = {
       token: localStorage.getItem("simpleClusterToken") || "",
       user: null,
@@ -648,6 +675,7 @@ INDEX_HTML = """
     function showApp() {
       $("loginScreen").hidden = true;
       $("appScreen").hidden = false;
+      $("logoutButton").hidden = !AUTH_REQUIRED;
       $("currentUser").textContent = state.user
         ? `${state.user.username}${state.user.is_admin ? " · 管理员" : ""}`
         : "";
@@ -748,6 +776,17 @@ INDEX_HTML = """
     }
 
     async function bootstrap() {
+      if (!AUTH_REQUIRED) {
+        try {
+          state.user = await api("/api/me");
+          showApp();
+          await loadData();
+        } catch (error) {
+          showApp();
+          setNotice("tableNotice", error.message, true);
+        }
+        return;
+      }
       if (!state.token) {
         showLogin();
         return;
@@ -825,6 +864,9 @@ INDEX_HTML = """
 
     $("refreshButton").addEventListener("click", loadData);
     $("logoutButton").addEventListener("click", () => {
+      if (!AUTH_REQUIRED) {
+        return;
+      }
       localStorage.removeItem("simpleClusterToken");
       state.token = "";
       state.user = null;
@@ -839,7 +881,10 @@ INDEX_HTML = """
 
 
 def index_html() -> str:
-    return INDEX_HTML.replace("__APP_NAME__", APP_DISPLAY_NAME)
+    return INDEX_HTML.replace("__APP_NAME__", APP_DISPLAY_NAME).replace(
+        "__AUTH_REQUIRED__",
+        "true" if AUTH_REQUIRED else "false",
+    )
 
 
 app = FastAPI(title=APP_DISPLAY_NAME, version="0.1.0")
@@ -863,6 +908,7 @@ def health() -> dict[str, Any]:
         "ok": True,
         "mode": "tunnel-console",
         "auth_mode": AUTH_MODE,
+        "auth_required": AUTH_REQUIRED,
         "nodes": [_public_node(node) for node in NODES],
     }
 
@@ -881,17 +927,17 @@ async def login(payload: LoginRequest) -> dict[str, Any]:
 
 
 @app.get("/api/me")
-def me(principal: Principal = Depends(get_current_principal)) -> dict[str, Any]:
+def me(principal: Principal = Depends(get_console_principal)) -> dict[str, Any]:
     return {"username": principal.username, "is_admin": principal.is_admin}
 
 
 @app.get("/api/nodes")
-def nodes(_: Principal = Depends(get_current_principal)) -> dict[str, Any]:
+def nodes(_: Principal = Depends(get_console_principal)) -> dict[str, Any]:
     return {"nodes": [_public_node(node) for node in NODES]}
 
 
 @app.get("/api/tunnels")
-async def tunnels(principal: Principal = Depends(get_current_principal)) -> dict[str, Any]:
+async def tunnels(principal: Principal = Depends(get_console_principal)) -> dict[str, Any]:
     tunnel_rows: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
     include_all = "true" if principal.is_admin else "false"
@@ -923,7 +969,7 @@ async def tunnels(principal: Principal = Depends(get_current_principal)) -> dict
 async def create_tunnel(
     node_id: str,
     payload: TunnelCreateRequest,
-    principal: Principal = Depends(get_current_principal),
+    principal: Principal = Depends(get_console_principal),
 ) -> dict[str, Any]:
     node = _node_or_404(node_id)
     response = await _node_request(
@@ -944,7 +990,7 @@ async def create_tunnel(
 async def delete_tunnel(
     node_id: str,
     tunnel_id: int,
-    principal: Principal = Depends(get_current_principal),
+    principal: Principal = Depends(get_console_principal),
 ) -> dict[str, Any]:
     node = _node_or_404(node_id)
     return await _node_request(

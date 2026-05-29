@@ -28,6 +28,7 @@ SIMPLE_APP_DISPLAY_NAME=简化服务器管理
 SIMPLE_JWT_SECRET=replace-with-a-long-random-secret
 SIMPLE_INTERNAL_SERVICE_TOKEN=replace-with-a-long-random-token
 SIMPLE_AUTH_MODE=local
+SIMPLE_NO_AUTH_USERNAME=
 
 SIMPLE_NODES_JSON='{
   "node1": {
@@ -57,6 +58,16 @@ SIMPLE_AUTH_NODE_ID=node1
 ```
 
 这种模式会把登录校验转发给指定 Servermanager 节点的 `/api/login`。
+
+如果只是本机或内网自用，不想要登录页，可以设置：
+
+```bash
+SIMPLE_AUTH_MODE=none
+SIMPLE_NO_AUTH_USERNAME=fan
+SIMPLE_NO_AUTH_IS_ADMIN=true
+```
+
+`SIMPLE_NO_AUTH_USERNAME` 要填节点机上已经存在的 Linux 用户名，因为 Clustermanager 会用这个用户名调用节点 API。`none` 模式没有登录保护，不要直接暴露到公网。
 
 ## 账号规则
 
