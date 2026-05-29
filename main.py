@@ -672,7 +672,7 @@ INDEX_HTML = """
                   <th>SSH 命令</th>
                   <th>状态</th>
                   <th>用户</th>
-                  <th>复制</th>
+                  <th>操作</th>
                 </tr>
               </thead>
               <tbody id="tunnelRows"></tbody>
@@ -810,6 +810,7 @@ INDEX_HTML = """
           <td>
             <div class="row-actions">
               <button class="secondary" type="button" data-copy="${escapeHtml(sshCommand)}">复制</button>
+              <button class="secondary" type="button" data-hide="${escapeHtml(tunnel.saved_key || accessKey(tunnel.node_id, tunnel.owner))}">隐藏</button>
             </div>
           </td>
         `;
@@ -820,6 +821,12 @@ INDEX_HTML = """
         button.addEventListener("click", async () => {
           await navigator.clipboard.writeText(button.dataset.copy);
           setNotice("tableNotice", "已复制");
+        });
+      });
+      rows.querySelectorAll("[data-hide]").forEach((button) => {
+        button.addEventListener("click", () => {
+          forgetAccess(button.dataset.hide);
+          renderTunnels();
         });
       });
     }
@@ -837,7 +844,85 @@ INDEX_HTML = """
       const nodesPayload = await api("/api/nodes");
       state.nodes = nodesPayload.nodes || [];
       renderNodes();
+      await restoreSavedAccesses();
+    }
+
+    function accessKey(nodeId, userId) {
+      return `${encodeURIComponent(nodeId)}:${encodeURIComponent(userId)}`;
+    }
+
+    function savedAccessStorageKey() {
+      const username = state.user && state.user.username ? state.user.username : "anonymous";
+      return `simpleClusterSshAccesses:${username}`;
+    }
+
+    function readSavedAccesses() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(savedAccessStorageKey()) || "[]");
+        if (!Array.isArray(parsed)) {
+          return [];
+        }
+        return parsed.filter((item) => item && item.node_id && item.user_id);
+      } catch {
+        return [];
+      }
+    }
+
+    function writeSavedAccesses(items) {
+      localStorage.setItem(savedAccessStorageKey(), JSON.stringify(items));
+    }
+
+    function rememberAccess(nodeId, userId) {
+      const next = readSavedAccesses().filter((item) => accessKey(item.node_id, item.user_id) !== accessKey(nodeId, userId));
+      next.unshift({ node_id: nodeId, user_id: userId });
+      writeSavedAccesses(next.slice(0, 20));
+    }
+
+    function forgetAccess(key) {
+      writeSavedAccesses(readSavedAccesses().filter((item) => accessKey(item.node_id, item.user_id) !== key));
+      state.tunnels = state.tunnels.filter((item) => (item.saved_key || accessKey(item.node_id, item.owner)) !== key);
+    }
+
+    async function fetchSshAccess(nodeId, userId) {
+      const payload = await api(`/api/nodes/${encodeURIComponent(nodeId)}/ssh-access`, {
+        method: "POST",
+        body: { user_id: userId }
+      });
+      if (!payload.access) {
+        return null;
+      }
+      payload.access.saved_key = accessKey(nodeId, userId);
+      payload.access.requested_user_id = userId;
+      return payload.access;
+    }
+
+    async function restoreSavedAccesses() {
+      const saved = readSavedAccesses();
+      if (!saved.length) {
+        state.tunnels = [];
+        renderTunnels();
+        return;
+      }
+
+      const validNodeIds = new Set(state.nodes.map((node) => node.id));
+      const restored = [];
+      const errors = [];
+      for (const item of saved) {
+        if (!validNodeIds.has(item.node_id)) {
+          continue;
+        }
+        try {
+          const access = await fetchSshAccess(item.node_id, item.user_id);
+          if (access) {
+            restored.push(access);
+          }
+        } catch (error) {
+          errors.push(error.message);
+        }
+      }
+      state.tunnels = restored;
       renderTunnels();
+      setNotice("tableNotice", errors.length ? errors.join("；") : "", errors.length > 0);
     }
 
     async function bootstrap() {
@@ -916,29 +1001,17 @@ INDEX_HTML = """
         user_id: userId
       };
       try {
-        const payload = await api(`/api/nodes/${encodeURIComponent(nodeId)}/ssh-access`, {
-          method: "POST",
-          body
-        });
-        state.tunnels = payload.access ? [payload.access] : [];
-        renderTunnels();
+        const access = await fetchSshAccess(nodeId, userId);
+        if (!access) {
+          throw new Error("节点未返回 SSH 命令");
+        }
+        rememberAccess(nodeId, userId);
+        await restoreSavedAccesses();
         setNotice("formNotice", "已生成 SSH 命令");
       } catch (error) {
         setNotice("formNotice", error.message, true);
       }
     });
-
-    async function deleteTunnel(nodeId, tunnelId) {
-      setNotice("tableNotice", "");
-      try {
-        await api(`/api/nodes/${encodeURIComponent(nodeId)}/tunnels/${encodeURIComponent(tunnelId)}`, {
-          method: "DELETE"
-        });
-        await loadData();
-      } catch (error) {
-        setNotice("tableNotice", error.message, true);
-      }
-    }
 
     $("refreshButton").addEventListener("click", loadData);
     $("logoutButton").addEventListener("click", () => {
