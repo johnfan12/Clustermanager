@@ -44,6 +44,12 @@
           </div>
         </section>
 
+        <GpuLoadPanel
+          :nodes="tunnelStore.gpuNodes"
+          :summary="tunnelStore.gpuSummary"
+          :errors="tunnelStore.gpuErrors"
+        />
+
         <!-- SSH Access Form -->
         <section class="section">
           <div class="section-header">
@@ -161,6 +167,7 @@ import { useToastStore } from '@/stores/toast'
 import { copyToClipboard } from '@/shared/utils/clipboard'
 import LoadingState from '@/components/LoadingState.vue'
 import AppButton from '@/components/AppButton.vue'
+import GpuLoadPanel from '@/components/GpuLoadPanel.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -245,7 +252,10 @@ function handleLogout() {
 }
 
 async function loadData() {
-  await tunnelStore.fetchNodes()
+  await Promise.all([
+    tunnelStore.fetchNodes(),
+    tunnelStore.fetchGpuStatus()
+  ])
   const errors = await tunnelStore.restoreSavedAccesses()
   tableNotice.value = errors.length ? errors.join('；') : ''
   tableNoticeIsError.value = errors.length > 0

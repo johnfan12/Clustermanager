@@ -66,7 +66,9 @@ SIMPLE_NODES_JSON='{
   "node1": {
     "name": "节点 1",
     "api": "http://127.0.0.1:18881",
-    "public_host": "vps.example.com"
+    "public_host": "vps.example.com",
+    "gpu_count": 1,
+    "gpu_model": "RTX 4090"
   }
 }'
 
@@ -80,6 +82,8 @@ SIMPLE_FRONTEND_DIST_DIR=frontend/dist
 `SIMPLE_INTERNAL_SERVICE_TOKEN` 必须和每个简化版 Servermanager 保持一致。
 
 如果节点 API 通过 FRP 暴露到 VPS，例如节点侧 `SIMPLE_API_REMOTE_PORT=18881`，这里的节点地址可以直接写 `http://127.0.0.1:18881`。
+
+GPU 负载面板会请求每个节点的 `/api/gpus/status`；`gpu_count` 和 `gpu_model` 用作节点离线或未返回详情时的兜底展示。
 
 ## 登录模式
 

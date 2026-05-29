@@ -14,6 +14,8 @@ export interface NodeInfo {
   id: string
   name: string
   public_host: string
+  gpu_count?: number
+  gpu_model?: string
 }
 
 export interface SshAccess {
@@ -37,11 +39,63 @@ export interface AppConfig {
   allow_register: boolean
 }
 
+export interface GpuInfo {
+  index: number
+  status: 'free' | 'used' | 'unknown'
+  is_idle?: boolean
+  allocated_to?: string | null
+  name?: string | null
+  gpu_model?: string | null
+  memory_total_mb?: number | null
+  memory_used_mb?: number | null
+  memory_total_gb?: number | null
+  utilization_gpu?: number | null
+  temperature_c?: number | null
+  power_draw_w?: number | null
+  power_limit_w?: number | null
+}
+
+export interface NodeGpuStatus {
+  node_id: string
+  name: string
+  online: boolean
+  gpu_model: string
+  gpu_total: number
+  gpu_free: number
+  gpu_used: number
+  gpu_utilization_avg: number | null
+  memory_used_mb: number | null
+  memory_total_mb: number | null
+  power_draw_w: number | null
+  power_limit_w: number | null
+  temperature_avg_c: number | null
+  instance_count: number
+  gpus: GpuInfo[]
+  error?: string
+}
+
+export interface GpuSummary {
+  total_gpu: number
+  free_gpu: number
+  used_gpu: number
+  total_instances: number
+  gpu_utilization_avg: number | null
+}
+
 // ── Store ──
 
 export const useTunnelStore = defineStore('tunnel', () => {
   const nodes = ref<NodeInfo[]>([])
   const tunnels = ref<SshAccess[]>([])
+  const gpuNodes = ref<NodeGpuStatus[]>([])
+  const gpuSummary = ref<GpuSummary>({
+    total_gpu: 0,
+    free_gpu: 0,
+    used_gpu: 0,
+    total_instances: 0,
+    gpu_utilization_avg: null
+  })
+  const gpuErrors = ref<string[]>([])
   const selectedNode = ref<string>('all')
   const config = ref<AppConfig>({
     app_display_name: 'Clustermanager',
@@ -76,6 +130,23 @@ export const useTunnelStore = defineStore('tunnel', () => {
   async function fetchNodes() {
     const data = await api.get<{ nodes: NodeInfo[] }>('/api/nodes')
     nodes.value = data.nodes || []
+  }
+
+  async function fetchGpuStatus() {
+    const data = await api.get<{
+      nodes: NodeGpuStatus[]
+      summary: GpuSummary
+      errors?: Array<{ node_id: string; message: string }>
+    }>('/api/cluster/status')
+    gpuNodes.value = data.nodes || []
+    gpuSummary.value = data.summary || {
+      total_gpu: 0,
+      free_gpu: 0,
+      used_gpu: 0,
+      total_instances: 0,
+      gpu_utilization_avg: null
+    }
+    gpuErrors.value = (data.errors || []).map((item) => item.message).filter(Boolean)
   }
 
   function accessKey(nodeId: string, userId: string): string {
@@ -168,6 +239,9 @@ export const useTunnelStore = defineStore('tunnel', () => {
     // state
     nodes,
     tunnels,
+    gpuNodes,
+    gpuSummary,
+    gpuErrors,
     selectedNode,
     config,
     // getters
@@ -175,6 +249,7 @@ export const useTunnelStore = defineStore('tunnel', () => {
     // actions
     fetchConfig,
     fetchNodes,
+    fetchGpuStatus,
     fetchSshAccess,
     restoreSavedAccesses,
     rememberAccess,
