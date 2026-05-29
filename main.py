@@ -69,11 +69,9 @@ class LoginRequest(BaseModel):
 
 
 class TunnelCreateRequest(BaseModel):
-    """Create one tunnel on a selected node."""
+    """Create one SSH tunnel on a selected node."""
 
     name: str | None = Field(default=None, max_length=64)
-    local_host: str = Field(default="127.0.0.1", min_length=1, max_length=255)
-    local_port: int = Field(ge=1, le=65535)
     remote_port: int | None = Field(default=None, ge=1, le=65535)
 
     @field_validator("name")
@@ -83,12 +81,6 @@ class TunnelCreateRequest(BaseModel):
             return None
         normalized = value.strip()
         return normalized or None
-
-    @field_validator("local_host")
-    @classmethod
-    def normalize_local_host(cls, value: str) -> str:
-        return value.strip()
-
 
 def _load_nodes() -> list[dict[str, str]]:
     raw = os.environ.get("SIMPLE_NODES_JSON") or os.environ.get("NODES_JSON") or ""
@@ -445,7 +437,7 @@ INDEX_HTML = """
     }
     .create-grid {
       display: grid;
-      grid-template-columns: minmax(150px, 1.1fr) minmax(130px, 0.9fr) minmax(110px, 0.65fr) minmax(120px, 0.65fr) minmax(110px, 0.65fr) auto;
+      grid-template-columns: minmax(150px, 1.1fr) minmax(130px, 1fr) minmax(120px, 0.7fr) auto;
       align-items: end;
       gap: 12px;
       padding: 14px;
@@ -576,7 +568,7 @@ INDEX_HTML = """
       <section class="content">
         <div class="panel">
           <div class="panel-head">
-            <h2>新建隧道</h2>
+            <h2>新建 SSH 入口</h2>
             <span id="formNotice" class="notice"></span>
           </div>
           <form id="createForm" class="create-grid">
@@ -584,13 +576,7 @@ INDEX_HTML = """
               <select id="createNode" required></select>
             </label>
             <label>名称
-              <input id="tunnelName" maxlength="64" placeholder="web-8080" />
-            </label>
-            <label>本机地址
-              <input id="localHost" value="127.0.0.1" required />
-            </label>
-            <label>本机端口
-              <input id="localPort" type="number" min="1" max="65535" required />
+              <input id="tunnelName" maxlength="64" placeholder="ssh" />
             </label>
             <label>公网端口
               <input id="remotePort" type="number" min="1" max="65535" />
@@ -601,7 +587,7 @@ INDEX_HTML = """
 
         <div class="panel">
           <div class="panel-head">
-            <h2>隧道</h2>
+            <h2>SSH 入口</h2>
             <span id="tableNotice" class="notice"></span>
           </div>
           <div class="table-wrap">
@@ -610,8 +596,7 @@ INDEX_HTML = """
                 <tr>
                   <th>节点</th>
                   <th>名称</th>
-                  <th>本机</th>
-                  <th>公网地址</th>
+                  <th>SSH 命令</th>
                   <th>状态</th>
                   <th>用户</th>
                   <th>操作</th>
@@ -619,7 +604,7 @@ INDEX_HTML = """
               </thead>
               <tbody id="tunnelRows"></tbody>
             </table>
-            <div id="emptyState" class="empty" hidden>暂无隧道</div>
+            <div id="emptyState" class="empty" hidden>暂无 SSH 入口</div>
           </div>
         </div>
       </section>
@@ -721,18 +706,17 @@ INDEX_HTML = """
 
       for (const tunnel of tunnels) {
         const tr = document.createElement("tr");
-        const address = tunnel.url || tunnel.address || `${tunnel.public_host}:${tunnel.remote_port}`;
+        const sshCommand = tunnel.ssh_command || `ssh -p ${tunnel.remote_port} ${tunnel.owner}@${tunnel.public_host}`;
         const statusClass = tunnel.status === "error" ? "status error" : "status";
         tr.innerHTML = `
           <td>${escapeHtml(tunnel.node_name || tunnel.node_id)}</td>
           <td>${escapeHtml(tunnel.name)}</td>
-          <td class="mono">${escapeHtml(tunnel.local_host)}:${tunnel.local_port}</td>
-          <td class="mono">${escapeHtml(address)}</td>
+          <td class="mono">${escapeHtml(sshCommand)}</td>
           <td><span class="${statusClass}" title="${escapeHtml(tunnel.error || "")}">${escapeHtml(tunnel.status)}</span></td>
           <td>${escapeHtml(tunnel.owner || "")}</td>
           <td>
             <div class="row-actions">
-              <button class="secondary" type="button" data-copy="${escapeHtml(address)}">复制</button>
+              <button class="secondary" type="button" data-copy="${escapeHtml(sshCommand)}">复制</button>
               <button class="danger" type="button" data-delete="${tunnel.id}" data-node="${escapeHtml(tunnel.node_id)}">删除</button>
             </div>
           </td>
@@ -831,8 +815,6 @@ INDEX_HTML = """
       const nodeId = $("createNode").value;
       const body = {
         name: $("tunnelName").value || null,
-        local_host: $("localHost").value || "127.0.0.1",
-        local_port: Number($("localPort").value),
         remote_port: $("remotePort").value ? Number($("remotePort").value) : null
       };
       try {
@@ -841,9 +823,8 @@ INDEX_HTML = """
           body
         });
         $("tunnelName").value = "";
-        $("localPort").value = "";
         $("remotePort").value = "";
-        setNotice("formNotice", "已创建");
+        setNotice("formNotice", "已创建 SSH 入口");
         await loadData();
       } catch (error) {
         setNotice("formNotice", error.message, true);
@@ -977,7 +958,7 @@ async def create_tunnel(
         "POST",
         "/api/internal/tunnels",
         principal,
-        json_body=payload.model_dump(),
+        json_body=payload.model_dump(exclude_none=True),
     )
     tunnel = response.get("tunnel")
     if isinstance(tunnel, dict):
