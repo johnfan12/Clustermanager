@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Clustermanager</title>
+</head>
+<body>
+  <section id="loginScreen" class="login-shell">
+    <div class="login-panel">
+      <h1 data-app-name>Clustermanager</h1>
+      <div class="auth-tabs">
+        <button id="loginTab" class="active" type="button">登录</button>
+        <button id="registerTab" type="button">注册</button>
+      </div>
+      <form id="loginForm">
+        <label>用户名
+          <input id="loginUsername" autocomplete="username" required />
+        </label>
+        <label>密码
+          <input id="loginPassword" type="password" autocomplete="current-password" required />
+        </label>
+        <label id="confirmPasswordRow" hidden>确认密码
+          <input id="confirmPassword" type="password" autocomplete="new-password" />
+        </label>
+        <button id="loginSubmit" type="submit">登录</button>
+        <div id="authHint" class="muted"></div>
+        <div id="loginNotice" class="notice"></div>
+      </form>
+    </div>
+  </section>
+
+  <section id="appScreen" class="shell" hidden>
+    <header class="topbar">
+      <div class="brand" data-app-name>Clustermanager</div>
+      <div class="userbar">
+        <span id="currentUser"></span>
+        <button id="refreshButton" class="secondary" type="button">刷新</button>
+        <button id="logoutButton" class="secondary" type="button">退出</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar">
+        <h2>节点</h2>
+        <div id="nodeList" class="node-list"></div>
+      </aside>
+
+      <section class="content">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>生成 SSH 命令</h2>
+            <span id="formNotice" class="notice"></span>
+          </div>
+          <form id="createForm" class="create-grid">
+            <label>节点
+              <select id="createNode" required></select>
+            </label>
+            <label>userid
+              <input id="sshUserId" maxlength="64" required />
+            </label>
+            <button type="submit">生成</button>
+          </form>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>SSH 命令</h2>
+            <span id="tableNotice" class="notice"></span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>节点</th>
+                  <th>名称</th>
+                  <th>SSH 命令</th>
+                  <th>状态</th>
+                  <th>用户</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="tunnelRows"></tbody>
+            </table>
+            <div id="emptyState" class="empty" hidden>输入 userid 后生成 SSH 命令</div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </section>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
