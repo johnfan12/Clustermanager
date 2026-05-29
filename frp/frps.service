@@ -1,5 +1,5 @@
 [Unit]
-Description=FRP Server for GPU Cluster
+Description=FRP Server for Simple Tunnel Platform
 After=network.target
 
 [Service]
