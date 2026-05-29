@@ -6,7 +6,7 @@
 
 - 使用 VPS 本机 Linux 账号通过 PAM 登录。
 - 展示一个或多个 Servermanager 节点。
-- 创建节点 SSH 入口并显示可复制的 SSH 命令。
+- 输入节点 Linux userid，创建节点 SSH 入口并显示可复制的 SSH 命令。
 - 删除自己的 SSH 入口；管理员可查看和删除所有 SSH 入口。
 - 前端由 `main.py` 直接提供，不需要 Vue 构建。
 

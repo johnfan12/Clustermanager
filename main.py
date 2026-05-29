@@ -71,8 +71,19 @@ class LoginRequest(BaseModel):
 class TunnelCreateRequest(BaseModel):
     """Create one SSH tunnel on a selected node."""
 
+    user_id: str = Field(min_length=1, max_length=64)
     name: str | None = Field(default=None, max_length=64)
     remote_port: int | None = Field(default=None, ge=1, le=65535)
+
+    @field_validator("user_id")
+    @classmethod
+    def normalize_user_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("User ID is required.")
+        if any(ord(char) < 32 for char in normalized):
+            raise ValueError("User ID contains control characters.")
+        return normalized
 
     @field_validator("name")
     @classmethod
@@ -272,6 +283,12 @@ def get_console_principal(
     return get_current_principal(credentials)
 
 
+def _tunnel_principal(current: Principal, user_id: str) -> Principal:
+    if AUTH_REQUIRED and not current.is_admin and user_id != current.username:
+        raise HTTPException(status_code=403, detail="Only admins can create SSH access for another user.")
+    return Principal(username=user_id, is_admin=current.is_admin)
+
+
 INDEX_HTML = """
 <!doctype html>
 <html lang="zh-CN">
@@ -437,7 +454,7 @@ INDEX_HTML = """
     }
     .create-grid {
       display: grid;
-      grid-template-columns: minmax(150px, 1.1fr) minmax(130px, 1fr) minmax(120px, 0.7fr) auto;
+      grid-template-columns: minmax(150px, 1.1fr) minmax(160px, 1fr) auto;
       align-items: end;
       gap: 12px;
       padding: 14px;
@@ -575,11 +592,8 @@ INDEX_HTML = """
             <label>节点
               <select id="createNode" required></select>
             </label>
-            <label>名称
-              <input id="tunnelName" maxlength="64" placeholder="ssh" />
-            </label>
-            <label>公网端口
-              <input id="remotePort" type="number" min="1" max="65535" />
+            <label>userid
+              <input id="sshUserId" maxlength="64" required />
             </label>
             <button type="submit">创建</button>
           </form>
@@ -664,6 +678,9 @@ INDEX_HTML = """
       $("currentUser").textContent = state.user
         ? `${state.user.username}${state.user.is_admin ? " · 管理员" : ""}`
         : "";
+      if (state.user && !$("sshUserId").value) {
+        $("sshUserId").value = state.user.username;
+      }
     }
 
     function renderNodes() {
@@ -813,17 +830,15 @@ INDEX_HTML = """
       event.preventDefault();
       setNotice("formNotice", "");
       const nodeId = $("createNode").value;
+      const userId = $("sshUserId").value.trim();
       const body = {
-        name: $("tunnelName").value || null,
-        remote_port: $("remotePort").value ? Number($("remotePort").value) : null
+        user_id: userId
       };
       try {
         await api(`/api/nodes/${encodeURIComponent(nodeId)}/tunnels`, {
           method: "POST",
           body
         });
-        $("tunnelName").value = "";
-        $("remotePort").value = "";
         setNotice("formNotice", "已创建 SSH 入口");
         await loadData();
       } catch (error) {
@@ -953,12 +968,16 @@ async def create_tunnel(
     principal: Principal = Depends(get_console_principal),
 ) -> dict[str, Any]:
     node = _node_or_404(node_id)
+    tunnel_principal = _tunnel_principal(principal, payload.user_id)
+    node_payload = payload.model_dump(exclude_none=True, exclude={"user_id"})
+    if "name" not in node_payload:
+        node_payload["name"] = f"ssh-{tunnel_principal.username}"
     response = await _node_request(
         node,
         "POST",
         "/api/internal/tunnels",
-        principal,
-        json_body=payload.model_dump(exclude_none=True),
+        tunnel_principal,
+        json_body=node_payload,
     )
     tunnel = response.get("tunnel")
     if isinstance(tunnel, dict):
