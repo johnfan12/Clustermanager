@@ -6,8 +6,8 @@
 
 - 支持控制台账号自助注册和登录。
 - 展示一个或多个 Servermanager 节点。
-- 输入节点 Linux userid，创建节点 SSH 入口并显示可复制的 SSH 命令。
-- 删除自己的 SSH 入口；管理员可查看和删除所有 SSH 入口。
+- 输入节点 Linux userid，生成固定节点 SSH 端口的连接命令。
+- 每个节点使用一个固定公网 SSH 端口，所有用户通过自己的 Linux userid 登录同一入口。
 - 前端由 `main.py` 直接提供，不需要 Vue 构建。
 
 ## 启动
@@ -53,7 +53,7 @@ SIMPLE_ALLOWED_GROUPS=
 
 默认 `SIMPLE_AUTH_MODE=account`，用户可在登录页自助注册控制台账号，然后登录。第一个注册用户默认是管理员。
 
-注册账号只用于进入控制台。创建 SSH 入口时填写的 `userid` 仍然必须是节点机上已经存在的 Linux 用户名。
+注册账号只用于进入控制台。生成 SSH 命令时填写的 `userid` 仍然必须是节点机上已经存在的 Linux 用户名。
 
 如果要关闭自助注册：
 

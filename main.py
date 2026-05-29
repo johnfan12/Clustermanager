@@ -317,6 +317,11 @@ def _tunnel_principal(current: Principal, user_id: str) -> Principal:
     return Principal(username=user_id, is_admin=current.is_admin)
 
 
+def _ssh_access_principal(current: Principal, user_id: str) -> Principal:
+    del current
+    return Principal(username=user_id, is_admin=False)
+
+
 INDEX_HTML = """
 <!doctype html>
 <html lang="zh-CN">
@@ -639,7 +644,7 @@ INDEX_HTML = """
       <section class="content">
         <div class="panel">
           <div class="panel-head">
-            <h2>新建 SSH 入口</h2>
+            <h2>生成 SSH 命令</h2>
             <span id="formNotice" class="notice"></span>
           </div>
           <form id="createForm" class="create-grid">
@@ -649,13 +654,13 @@ INDEX_HTML = """
             <label>userid
               <input id="sshUserId" maxlength="64" required />
             </label>
-            <button type="submit">创建</button>
+            <button type="submit">生成</button>
           </form>
         </div>
 
         <div class="panel">
           <div class="panel-head">
-            <h2>SSH 入口</h2>
+            <h2>SSH 命令</h2>
             <span id="tableNotice" class="notice"></span>
           </div>
           <div class="table-wrap">
@@ -667,12 +672,12 @@ INDEX_HTML = """
                   <th>SSH 命令</th>
                   <th>状态</th>
                   <th>用户</th>
-                  <th>操作</th>
+                  <th>复制</th>
                 </tr>
               </thead>
               <tbody id="tunnelRows"></tbody>
             </table>
-            <div id="emptyState" class="empty" hidden>暂无 SSH 入口</div>
+            <div id="emptyState" class="empty" hidden>输入 userid 后生成 SSH 命令</div>
           </div>
         </div>
       </section>
@@ -805,7 +810,6 @@ INDEX_HTML = """
           <td>
             <div class="row-actions">
               <button class="secondary" type="button" data-copy="${escapeHtml(sshCommand)}">复制</button>
-              <button class="danger" type="button" data-delete="${tunnel.id}" data-node="${escapeHtml(tunnel.node_id)}">删除</button>
             </div>
           </td>
         `;
@@ -816,11 +820,6 @@ INDEX_HTML = """
         button.addEventListener("click", async () => {
           await navigator.clipboard.writeText(button.dataset.copy);
           setNotice("tableNotice", "已复制");
-        });
-      });
-      rows.querySelectorAll("[data-delete]").forEach((button) => {
-        button.addEventListener("click", async () => {
-          await deleteTunnel(button.dataset.node, button.dataset.delete);
         });
       });
     }
@@ -835,16 +834,10 @@ INDEX_HTML = """
     }
 
     async function loadData() {
-      const [nodesPayload, tunnelsPayload] = await Promise.all([
-        api("/api/nodes"),
-        api("/api/tunnels")
-      ]);
+      const nodesPayload = await api("/api/nodes");
       state.nodes = nodesPayload.nodes || [];
-      state.tunnels = tunnelsPayload.tunnels || [];
       renderNodes();
       renderTunnels();
-      const errors = tunnelsPayload.errors || [];
-      setNotice("tableNotice", errors.length ? errors.map((item) => item.message).join("；") : "", errors.length > 0);
     }
 
     async function bootstrap() {
@@ -923,12 +916,13 @@ INDEX_HTML = """
         user_id: userId
       };
       try {
-        await api(`/api/nodes/${encodeURIComponent(nodeId)}/tunnels`, {
+        const payload = await api(`/api/nodes/${encodeURIComponent(nodeId)}/ssh-access`, {
           method: "POST",
           body
         });
-        setNotice("formNotice", "已创建 SSH 入口");
-        await loadData();
+        state.tunnels = payload.access ? [payload.access] : [];
+        renderTunnels();
+        setNotice("formNotice", "已生成 SSH 命令");
       } catch (error) {
         setNotice("formNotice", error.message, true);
       }
@@ -1096,6 +1090,27 @@ async def create_tunnel(
     if isinstance(tunnel, dict):
         tunnel["node_id"] = node["id"]
         tunnel["node_name"] = node["name"]
+    return response
+
+
+@app.post("/api/nodes/{node_id}/ssh-access")
+async def node_ssh_access(
+    node_id: str,
+    payload: TunnelCreateRequest,
+    principal: Principal = Depends(get_console_principal),
+) -> dict[str, Any]:
+    node = _node_or_404(node_id)
+    ssh_principal = _ssh_access_principal(principal, payload.user_id)
+    response = await _node_request(
+        node,
+        "GET",
+        "/api/internal/ssh-access",
+        ssh_principal,
+    )
+    access = response.get("access")
+    if isinstance(access, dict):
+        access["node_id"] = node["id"]
+        access["node_name"] = node["name"]
     return response
 
 
