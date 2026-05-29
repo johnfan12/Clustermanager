@@ -138,10 +138,12 @@ def create_access_token(principal: Principal) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
-def get_current_principal(
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+def decode_access_token(
+    credentials: HTTPAuthorizationCredentials | None,
+    *,
+    require_local_user: bool = True,
 ) -> Principal:
-    """Read the bearer token and return the current local principal."""
+    """Read the bearer token and return the current principal."""
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(status_code=401, detail="Authentication required.")
     try:
@@ -154,6 +156,13 @@ def get_current_principal(
         raise HTTPException(status_code=401, detail="Invalid or expired token.") from exc
 
     username = str(payload.get("sub") or "")
-    if not is_local_user_allowed(username):
+    if require_local_user and not is_local_user_allowed(username):
         raise HTTPException(status_code=401, detail="Local account is not allowed.")
     return Principal(username=username, is_admin=bool(payload.get("is_admin")))
+
+
+def get_current_principal(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+) -> Principal:
+    """Read the bearer token and return the current local principal."""
+    return decode_access_token(credentials, require_local_user=True)

@@ -1,10 +1,10 @@
 # 简化版 Clustermanager
 
-这个入口是轻量服务器管理控制台，只聚合节点侧内网穿透能力，不包含注册、Docker、GPU 实例、计费或配额。
+这个入口是轻量服务器管理控制台，只聚合节点侧 SSH 内网穿透能力，不包含 Docker、GPU 实例、计费或配额。
 
 ## 能力范围
 
-- 使用 VPS 本机 Linux 账号通过 PAM 登录。
+- 支持控制台账号自助注册和登录。
 - 展示一个或多个 Servermanager 节点。
 - 输入节点 Linux userid，创建节点 SSH 入口并显示可复制的 SSH 命令。
 - 删除自己的 SSH 入口；管理员可查看和删除所有 SSH 入口。
@@ -27,7 +27,10 @@ SIMPLE_APP_DISPLAY_NAME=简化服务器管理
 
 SIMPLE_JWT_SECRET=replace-with-a-long-random-secret
 SIMPLE_INTERNAL_SERVICE_TOKEN=replace-with-a-long-random-token
-SIMPLE_AUTH_MODE=local
+SIMPLE_AUTH_MODE=account
+SIMPLE_ALLOW_REGISTER=true
+SIMPLE_FIRST_USER_ADMIN=true
+SIMPLE_USERS_DB=runtime/simple-cluster-users.db
 SIMPLE_NO_AUTH_USERNAME=
 
 SIMPLE_NODES_JSON='{
@@ -48,7 +51,23 @@ SIMPLE_ALLOWED_GROUPS=
 
 ## 登录模式
 
-默认 `SIMPLE_AUTH_MODE=local`，登录用户必须是 VPS 本机账号。
+默认 `SIMPLE_AUTH_MODE=account`，用户可在登录页自助注册控制台账号，然后登录。第一个注册用户默认是管理员。
+
+注册账号只用于进入控制台。创建 SSH 入口时填写的 `userid` 仍然必须是节点机上已经存在的 Linux 用户名。
+
+如果要关闭自助注册：
+
+```bash
+SIMPLE_ALLOW_REGISTER=false
+```
+
+旧的本机账号模式仍然可用：
+
+```bash
+SIMPLE_AUTH_MODE=local
+```
+
+此时登录用户必须是 VPS 本机账号。
 
 如果希望登录用户必须是节点机本机账号，可以设置：
 

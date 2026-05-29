@@ -20,7 +20,14 @@ from auth import (
     Principal,
     authenticate_local_user,
     create_access_token,
+    decode_access_token,
     get_current_principal,
+)
+from user_store import (
+    account_user_exists,
+    authenticate_account_user,
+    create_account_user,
+    init_user_store,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -44,8 +51,10 @@ INTERNAL_SERVICE_TOKEN = os.environ.get("SIMPLE_INTERNAL_SERVICE_TOKEN") or os.e
     "INTERNAL_SERVICE_TOKEN", "change-this-internal-service-token"
 )
 REQUEST_TIMEOUT = float(os.environ.get("SIMPLE_NODE_REQUEST_TIMEOUT", "12"))
-AUTH_MODE = os.environ.get("SIMPLE_AUTH_MODE", "local").strip().lower()
+AUTH_MODE = os.environ.get("SIMPLE_AUTH_MODE", "account").strip().lower()
 AUTH_REQUIRED = AUTH_MODE != "none"
+ALLOW_REGISTER = os.environ.get("SIMPLE_ALLOW_REGISTER", "true").lower() == "true"
+FIRST_USER_ADMIN = os.environ.get("SIMPLE_FIRST_USER_ADMIN", "true").lower() == "true"
 NO_AUTH_USERNAME = (
     os.environ.get("SIMPLE_NO_AUTH_USERNAME")
     or os.environ.get("SIMPLE_DEFAULT_USERNAME")
@@ -59,6 +68,8 @@ CORS_ALLOW_ORIGINS = [
     if item.strip()
 ]
 console_security = HTTPBearer(auto_error=False)
+if AUTH_MODE == "account":
+    init_user_store()
 
 
 class LoginRequest(BaseModel):
@@ -66,6 +77,13 @@ class LoginRequest(BaseModel):
 
     username: str = Field(min_length=1, max_length=128)
     password: str = Field(min_length=1, max_length=4096)
+
+
+class RegisterRequest(BaseModel):
+    """Register a console account."""
+
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=6, max_length=4096)
 
 
 class TunnelCreateRequest(BaseModel):
@@ -92,6 +110,7 @@ class TunnelCreateRequest(BaseModel):
             return None
         normalized = value.strip()
         return normalized or None
+
 
 def _load_nodes() -> list[dict[str, str]]:
     raw = os.environ.get("SIMPLE_NODES_JSON") or os.environ.get("NODES_JSON") or ""
@@ -262,6 +281,8 @@ async def _authenticate_node_user(username: str, password: str) -> Principal:
 async def _authenticate_console_user(username: str, password: str) -> Principal:
     if AUTH_MODE == "none":
         return _no_auth_principal()
+    if AUTH_MODE == "account":
+        return authenticate_account_user(username, password)
     if AUTH_MODE == "node":
         return await _authenticate_node_user(username, password)
     if AUTH_MODE != "local":
@@ -280,6 +301,13 @@ def get_console_principal(
 ) -> Principal:
     if AUTH_MODE == "none":
         return _no_auth_principal()
+    if AUTH_MODE == "account":
+        principal = decode_access_token(credentials, require_local_user=False)
+        if not account_user_exists(principal.username):
+            raise HTTPException(status_code=401, detail="Account no longer exists.")
+        return principal
+    if AUTH_MODE == "node":
+        return decode_access_token(credentials, require_local_user=False)
     return get_current_principal(credentials)
 
 
@@ -331,6 +359,20 @@ INDEX_HTML = """
     button:disabled {
       opacity: 0.55;
       cursor: not-allowed;
+    }
+    .auth-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 18px;
+    }
+    .auth-tabs button {
+      background: #e8eef0;
+      color: #1f2a37;
+    }
+    .auth-tabs button.active {
+      background: #0f766e;
+      color: #fff;
     }
     input, select {
       width: 100%;
@@ -516,6 +558,10 @@ INDEX_HTML = """
     .notice.error {
       color: #b42318;
     }
+    .muted {
+      color: #667985;
+      font-size: 13px;
+    }
     [hidden] { display: none !important; }
     @media (max-width: 860px) {
       .layout {
@@ -553,6 +599,10 @@ INDEX_HTML = """
   <section id="loginScreen" class="login-shell">
     <div class="login-panel">
       <h1>__APP_NAME__</h1>
+      <div class="auth-tabs">
+        <button id="loginTab" class="active" type="button">登录</button>
+        <button id="registerTab" type="button">注册</button>
+      </div>
       <form id="loginForm">
         <label>用户名
           <input id="loginUsername" autocomplete="username" required />
@@ -560,7 +610,11 @@ INDEX_HTML = """
         <label>密码
           <input id="loginPassword" type="password" autocomplete="current-password" required />
         </label>
-        <button type="submit">登录</button>
+        <label id="confirmPasswordRow" hidden>确认密码
+          <input id="confirmPassword" type="password" autocomplete="new-password" />
+        </label>
+        <button id="loginSubmit" type="submit">登录</button>
+        <div id="authHint" class="muted"></div>
         <div id="loginNotice" class="notice"></div>
       </form>
     </div>
@@ -627,6 +681,9 @@ INDEX_HTML = """
 
   <script>
     const AUTH_REQUIRED = __AUTH_REQUIRED__;
+    const AUTH_MODE = "__AUTH_MODE__";
+    const ALLOW_REGISTER = __ALLOW_REGISTER__;
+    let authAction = "login";
     const state = {
       token: localStorage.getItem("simpleClusterToken") || "",
       user: null,
@@ -669,6 +726,7 @@ INDEX_HTML = """
     function showLogin() {
       $("loginScreen").hidden = false;
       $("appScreen").hidden = true;
+      renderAuthMode();
     }
 
     function showApp() {
@@ -681,6 +739,19 @@ INDEX_HTML = """
       if (state.user && !$("sshUserId").value) {
         $("sshUserId").value = state.user.username;
       }
+    }
+
+    function renderAuthMode() {
+      const accountMode = AUTH_MODE === "account";
+      $("registerTab").hidden = !accountMode || !ALLOW_REGISTER;
+      $("loginTab").style.gridColumn = $("registerTab").hidden ? "1 / -1" : "";
+      $("confirmPasswordRow").hidden = authAction !== "register";
+      $("loginTab").classList.toggle("active", authAction === "login");
+      $("registerTab").classList.toggle("active", authAction === "register");
+      $("loginSubmit").textContent = authAction === "register" ? "注册并登录" : "登录";
+      $("authHint").textContent = accountMode
+        ? (authAction === "register" ? "注册后可直接登录控制台" : "")
+        : "";
     }
 
     function renderNodes() {
@@ -807,8 +878,12 @@ INDEX_HTML = """
     $("loginForm").addEventListener("submit", async (event) => {
       event.preventDefault();
       setNotice("loginNotice", "");
+      if (authAction === "register" && $("loginPassword").value !== $("confirmPassword").value) {
+        setNotice("loginNotice", "两次输入的密码不一致", true);
+        return;
+      }
       try {
-        const payload = await api("/api/login", {
+        const payload = await api(authAction === "register" ? "/api/register" : "/api/login", {
           method: "POST",
           body: {
             username: $("loginUsername").value,
@@ -819,11 +894,24 @@ INDEX_HTML = """
         state.user = payload.user;
         localStorage.setItem("simpleClusterToken", state.token);
         $("loginPassword").value = "";
+        $("confirmPassword").value = "";
         showApp();
         await loadData();
       } catch (error) {
         setNotice("loginNotice", error.message, true);
       }
+    });
+
+    $("loginTab").addEventListener("click", () => {
+      authAction = "login";
+      setNotice("loginNotice", "");
+      renderAuthMode();
+    });
+
+    $("registerTab").addEventListener("click", () => {
+      authAction = "register";
+      setNotice("loginNotice", "");
+      renderAuthMode();
     });
 
     $("createForm").addEventListener("submit", async (event) => {
@@ -877,9 +965,11 @@ INDEX_HTML = """
 
 
 def index_html() -> str:
-    return INDEX_HTML.replace("__APP_NAME__", APP_DISPLAY_NAME).replace(
-        "__AUTH_REQUIRED__",
-        "true" if AUTH_REQUIRED else "false",
+    return (
+        INDEX_HTML.replace("__APP_NAME__", APP_DISPLAY_NAME)
+        .replace("__AUTH_REQUIRED__", "true" if AUTH_REQUIRED else "false")
+        .replace("__AUTH_MODE__", AUTH_MODE)
+        .replace("__ALLOW_REGISTER__", "true" if ALLOW_REGISTER else "false")
     )
 
 
@@ -905,6 +995,7 @@ def health() -> dict[str, Any]:
         "mode": "tunnel-console",
         "auth_mode": AUTH_MODE,
         "auth_required": AUTH_REQUIRED,
+        "allow_register": ALLOW_REGISTER if AUTH_MODE == "account" else False,
         "nodes": [_public_node(node) for node in NODES],
     }
 
@@ -912,6 +1003,28 @@ def health() -> dict[str, Any]:
 @app.post("/api/login")
 async def login(payload: LoginRequest) -> dict[str, Any]:
     principal = await _authenticate_console_user(payload.username, payload.password)
+    return {
+        "access_token": create_access_token(principal),
+        "token_type": "bearer",
+        "user": {
+            "username": principal.username,
+            "is_admin": principal.is_admin,
+        },
+    }
+
+
+@app.post("/api/register")
+def register(payload: RegisterRequest) -> dict[str, Any]:
+    if AUTH_MODE != "account":
+        raise HTTPException(status_code=400, detail="Registration is only available in account auth mode.")
+    if not ALLOW_REGISTER:
+        raise HTTPException(status_code=403, detail="Registration is disabled.")
+    account = create_account_user(
+        payload.username,
+        payload.password,
+        first_user_admin=FIRST_USER_ADMIN,
+    )
+    principal = Principal(username=account.username, is_admin=account.is_admin)
     return {
         "access_token": create_access_token(principal),
         "token_type": "bearer",
