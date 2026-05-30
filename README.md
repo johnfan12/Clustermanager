@@ -60,6 +60,7 @@ SIMPLE_AUTH_MODE=account
 SIMPLE_ALLOW_REGISTER=true
 SIMPLE_FIRST_USER_ADMIN=true
 SIMPLE_USERS_DB=runtime/simple-cluster-users.db
+SIMPLE_NODE_STATUS_DB=runtime/simple-cluster-node-status.db
 SIMPLE_NO_AUTH_USERNAME=
 
 SIMPLE_NODES_JSON='{

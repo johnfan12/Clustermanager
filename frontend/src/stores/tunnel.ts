@@ -74,6 +74,17 @@ export interface NodeGpuStatus {
   error?: string
 }
 
+export interface NodeHealth {
+  node_id: string
+  name: string
+  online: boolean
+  uptime_seconds: number | null
+  issue: string
+  issue_seconds: number | null
+  last_seen_at: string | null
+  last_ok_at: string | null
+}
+
 export interface GpuSummary {
   total_gpu: number
   free_gpu: number
@@ -88,6 +99,7 @@ export const useTunnelStore = defineStore('tunnel', () => {
   const nodes = ref<NodeInfo[]>([])
   const tunnels = ref<SshAccess[]>([])
   const gpuNodes = ref<NodeGpuStatus[]>([])
+  const nodeHealth = ref<NodeHealth[]>([])
   const gpuSummary = ref<GpuSummary>({
     total_gpu: 0,
     free_gpu: 0,
@@ -136,9 +148,11 @@ export const useTunnelStore = defineStore('tunnel', () => {
     const data = await api.get<{
       nodes: NodeGpuStatus[]
       summary: GpuSummary
+      node_health?: NodeHealth[]
       errors?: Array<{ node_id: string; message: string }>
     }>('/api/cluster/status')
     gpuNodes.value = data.nodes || []
+    nodeHealth.value = data.node_health || []
     gpuSummary.value = data.summary || {
       total_gpu: 0,
       free_gpu: 0,
@@ -147,6 +161,11 @@ export const useTunnelStore = defineStore('tunnel', () => {
       gpu_utilization_avg: null
     }
     gpuErrors.value = (data.errors || []).map((item) => item.message).filter(Boolean)
+  }
+
+  async function fetchNodeStatuses() {
+    const data = await api.get<{ nodes: NodeHealth[] }>('/api/nodes/status')
+    nodeHealth.value = data.nodes || []
   }
 
   function accessKey(nodeId: string, userId: string): string {
@@ -240,6 +259,7 @@ export const useTunnelStore = defineStore('tunnel', () => {
     nodes,
     tunnels,
     gpuNodes,
+    nodeHealth,
     gpuSummary,
     gpuErrors,
     selectedNode,
@@ -250,6 +270,7 @@ export const useTunnelStore = defineStore('tunnel', () => {
     fetchConfig,
     fetchNodes,
     fetchGpuStatus,
+    fetchNodeStatuses,
     fetchSshAccess,
     restoreSavedAccesses,
     rememberAccess,

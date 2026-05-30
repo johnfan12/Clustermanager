@@ -24,6 +24,7 @@ from auth import (
     decode_access_token,
     get_current_principal,
 )
+from node_status_store import init_node_status_store, list_node_health, update_node_health
 from user_store import (
     account_user_exists,
     authenticate_account_user,
@@ -74,6 +75,7 @@ CORS_ALLOW_ORIGINS = [
 console_security = HTTPBearer(auto_error=False)
 if AUTH_MODE == "account":
     init_user_store()
+init_node_status_store()
 
 
 class LoginRequest(BaseModel):
@@ -196,6 +198,10 @@ def _load_nodes() -> list[dict[str, Any]]:
 NODES = _load_nodes()
 NODES_BY_ID = {node["id"]: node for node in NODES}
 AUTH_NODE_ID = os.environ.get("SIMPLE_AUTH_NODE_ID", NODES[0]["id"] if NODES else "")
+
+
+def _configured_node_health_inputs() -> list[dict[str, str]]:
+    return [{"node_id": str(node["id"]), "name": str(node["name"])} for node in NODES]
 
 
 def _public_node(node: dict[str, Any]) -> dict[str, Any]:
@@ -675,6 +681,7 @@ async def cluster_status(
         )
         if value is not None
     ]
+    node_health = update_node_health(nodes)
 
     return {
         "nodes": nodes,
@@ -685,12 +692,18 @@ async def cluster_status(
             "total_instances": total_instances,
             "gpu_utilization_avg": _average(utilization_values),
         },
+        "node_health": node_health,
         "errors": [
             {"node_id": node["node_id"], "message": node["error"]}
             for node in nodes
             if node.get("error")
         ],
     }
+
+
+@app.get("/api/nodes/status")
+def node_statuses(_: Principal = Depends(get_console_principal)) -> dict[str, Any]:
+    return {"nodes": list_node_health(_configured_node_health_inputs())}
 
 
 @app.get("/api/tunnels")

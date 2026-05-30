@@ -10,10 +10,6 @@
       </span>
     </div>
 
-    <div v-if="errors.length" class="gpu-errors">
-      {{ errors.join('；') }}
-    </div>
-
     <div class="table-wrap">
       <table class="gpu-table">
         <thead>
@@ -105,7 +101,7 @@
                     </div>
                   </article>
                 </div>
-                <span v-else class="muted">{{ node.error || '无 GPU 详情数据' }}</span>
+                <span v-else class="muted">无 GPU 详情数据</span>
               </td>
             </tr>
           </template>
@@ -122,7 +118,6 @@ import type { GpuInfo, GpuSummary, NodeGpuStatus } from '@/stores/tunnel'
 defineProps<{
   nodes: NodeGpuStatus[]
   summary: GpuSummary
-  errors: string[]
 }>()
 
 const expandedNodes = ref(new Set<string>())
@@ -215,14 +210,6 @@ function formatTemperature(value: GpuInfo['temperature_c']) {
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
   text-align: right;
-}
-
-.gpu-errors {
-  padding: 8px 16px;
-  border-bottom: 1px solid var(--color-danger-border);
-  background: var(--color-danger-bg);
-  color: var(--color-danger);
-  font-size: var(--font-size-sm);
 }
 
 .table-wrap {

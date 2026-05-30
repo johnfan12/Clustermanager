@@ -7,6 +7,7 @@
         <div class="header-sub">SSH 隧道管理控制台</div>
       </div>
       <div class="header-right">
+        <NodeStatusMenu :nodes="tunnelStore.nodeHealth" />
         <span class="header-user">{{ authStore.username || '-' }}{{ authStore.isAdmin ? ' · 管理员' : '' }}</span>
         <button class="action-btn" @click="handleRefresh">刷新</button>
         <button class="action-btn" @click="handleLogout">退出</button>
@@ -47,7 +48,6 @@
         <GpuLoadPanel
           :nodes="tunnelStore.gpuNodes"
           :summary="tunnelStore.gpuSummary"
-          :errors="tunnelStore.gpuErrors"
         />
 
         <!-- SSH Access Form -->
@@ -168,6 +168,7 @@ import { copyToClipboard } from '@/shared/utils/clipboard'
 import LoadingState from '@/components/LoadingState.vue'
 import AppButton from '@/components/AppButton.vue'
 import GpuLoadPanel from '@/components/GpuLoadPanel.vue'
+import NodeStatusMenu from '@/components/NodeStatusMenu.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
