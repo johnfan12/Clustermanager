@@ -24,7 +24,7 @@ from auth import (
     decode_access_token,
     get_current_principal,
 )
-from node_status_store import init_node_status_store, list_node_health, update_node_health
+from node_status_store import init_node_status_store, list_node_health, list_node_health_history, update_node_health
 from user_store import (
     account_user_exists,
     authenticate_account_user,
@@ -704,6 +704,11 @@ async def cluster_status(
 @app.get("/api/nodes/status")
 def node_statuses(_: Principal = Depends(get_console_principal)) -> dict[str, Any]:
     return {"nodes": list_node_health(_configured_node_health_inputs())}
+
+
+@app.get("/api/nodes/status/history")
+def node_status_history(_: Principal = Depends(get_console_principal)) -> dict[str, Any]:
+    return {"history": list_node_health_history(_configured_node_health_inputs(), days=30)}
 
 
 @app.get("/api/tunnels")

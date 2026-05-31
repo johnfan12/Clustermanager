@@ -35,6 +35,23 @@
             </template>
           </div>
           <div v-if="!node.online" class="issue-text">{{ node.issue || 'Node is offline.' }}</div>
+
+          <!-- 30-day uptime grid -->
+          <div class="uptime-grid-wrap">
+            <div class="uptime-grid-label">过去 30 天</div>
+            <div class="uptime-grid">
+              <div
+                v-for="(day, idx) in getNodeHistory(node.node_id)"
+                :key="idx"
+                :class="['uptime-cell', dayClass(day)]"
+                :title="dayTooltip(day)"
+              />
+            </div>
+            <div class="uptime-grid-legend">
+              <span>30 天前</span>
+              <span>今天</span>
+            </div>
+          </div>
         </article>
       </div>
     </div>
@@ -43,10 +60,11 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { NodeHealth } from '@/stores/tunnel'
+import type { NodeHealth, DailyNodeStatus } from '@/stores/tunnel'
 
 const props = defineProps<{
   nodes: NodeHealth[]
+  history: Record<string, DailyNodeStatus[]>
 }>()
 
 const open = ref(false)
@@ -58,6 +76,25 @@ const triggerText = computed(() => {
   if (!props.nodes.length) return '状态'
   return hasIssues.value ? `状态 ${issueCount.value}` : '状态正常'
 })
+
+function getNodeHistory(nodeId: string): DailyNodeStatus[] {
+  return props.history[nodeId] || []
+}
+
+function dayClass(day: DailyNodeStatus): string {
+  if (day.checks_total === 0) return 'no-data'
+  if (day.checks_ok === day.checks_total) return 'all-ok'
+  if (day.checks_ok === 0) return 'all-fail'
+  return 'partial'
+}
+
+function dayTooltip(day: DailyNodeStatus): string {
+  if (day.checks_total === 0) return `${day.date}\n暂无数据`
+  const pct = Math.round((day.checks_ok / day.checks_total) * 100)
+  if (pct === 100) return `${day.date}\n全天正常`
+  if (pct === 0) return `${day.date}\n全天异常`
+  return `${day.date}\n正常率 ${pct}% (${day.checks_ok}/${day.checks_total})`
+}
 
 function formatDuration(seconds: number | null | undefined) {
   if (typeof seconds !== 'number' || Number.isNaN(seconds)) return '—'
@@ -116,7 +153,7 @@ function formatDuration(seconds: number | null | undefined) {
   top: calc(100% + 8px);
   right: 0;
   z-index: var(--z-dropdown);
-  width: min(420px, calc(100vw - 32px));
+  width: min(460px, calc(100vw - 32px));
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface);
@@ -141,7 +178,7 @@ function formatDuration(seconds: number | null | undefined) {
 }
 
 .status-list {
-  max-height: 340px;
+  max-height: 480px;
   overflow: auto;
 }
 
@@ -189,5 +226,62 @@ function formatDuration(seconds: number | null | undefined) {
   font-size: var(--font-size-xs);
   line-height: 1.4;
   word-break: break-word;
+}
+
+/* ── 30-day uptime grid ── */
+.uptime-grid-wrap {
+  margin-top: 6px;
+  padding-left: 16px;
+}
+
+.uptime-grid-label {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  margin-bottom: 3px;
+}
+
+.uptime-grid {
+  display: flex;
+  gap: 2px;
+}
+
+.uptime-cell {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+  cursor: default;
+}
+
+.uptime-cell:hover {
+  transform: scale(1.6);
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.15);
+  z-index: 1;
+  position: relative;
+}
+
+.uptime-cell.all-ok {
+  background: #2da44e;
+}
+
+.uptime-cell.partial {
+  background: #f0883e;
+}
+
+.uptime-cell.all-fail {
+  background: #cf222e;
+}
+
+.uptime-cell.no-data {
+  background: #d0d7de;
+}
+
+.uptime-grid-legend {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: var(--color-text-placeholder);
+  margin-top: 2px;
 }
 </style>

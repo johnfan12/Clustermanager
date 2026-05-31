@@ -93,6 +93,13 @@ export interface GpuSummary {
   gpu_utilization_avg: number | null
 }
 
+export interface DailyNodeStatus {
+  date: string
+  online: boolean
+  checks_total: number
+  checks_ok: number
+}
+
 // ── Store ──
 
 export const useTunnelStore = defineStore('tunnel', () => {
@@ -100,6 +107,7 @@ export const useTunnelStore = defineStore('tunnel', () => {
   const tunnels = ref<SshAccess[]>([])
   const gpuNodes = ref<NodeGpuStatus[]>([])
   const nodeHealth = ref<NodeHealth[]>([])
+  const statusHistory = ref<Record<string, DailyNodeStatus[]>>({})
   const gpuSummary = ref<GpuSummary>({
     total_gpu: 0,
     free_gpu: 0,
@@ -166,6 +174,15 @@ export const useTunnelStore = defineStore('tunnel', () => {
   async function fetchNodeStatuses() {
     const data = await api.get<{ nodes: NodeHealth[] }>('/api/nodes/status')
     nodeHealth.value = data.nodes || []
+  }
+
+  async function fetchNodeStatusHistory() {
+    try {
+      const data = await api.get<{ history: Record<string, DailyNodeStatus[]> }>('/api/nodes/status/history')
+      statusHistory.value = data.history || {}
+    } catch {
+      statusHistory.value = {}
+    }
   }
 
   function accessKey(nodeId: string, userId: string): string {
@@ -260,6 +277,7 @@ export const useTunnelStore = defineStore('tunnel', () => {
     tunnels,
     gpuNodes,
     nodeHealth,
+    statusHistory,
     gpuSummary,
     gpuErrors,
     selectedNode,
@@ -271,6 +289,7 @@ export const useTunnelStore = defineStore('tunnel', () => {
     fetchNodes,
     fetchGpuStatus,
     fetchNodeStatuses,
+    fetchNodeStatusHistory,
     fetchSshAccess,
     restoreSavedAccesses,
     rememberAccess,

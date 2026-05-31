@@ -7,9 +7,10 @@
         <div class="header-sub">SSH 隧道管理控制台</div>
       </div>
       <div class="header-right">
-        <NodeStatusMenu :nodes="tunnelStore.nodeHealth" />
+        <NodeStatusMenu :nodes="tunnelStore.nodeHealth" :history="tunnelStore.statusHistory" />
         <span class="header-user">{{ authStore.username || '-' }}{{ authStore.isAdmin ? ' · 管理员' : '' }}</span>
         <button class="action-btn" @click="handleRefresh">刷新</button>
+        <router-link :to="{ name: 'Docs' }" class="action-btn docs-btn">📖 文档</router-link>
         <button class="action-btn" @click="handleLogout">退出</button>
       </div>
     </header>
@@ -19,32 +20,6 @@
       <!-- Loading overlay -->
       <LoadingState v-if="initialLoading" text="加载节点数据..." />
       <template v-else>
-        <!-- Node selector -->
-        <section class="section">
-          <div class="section-header">
-            <h2>节点</h2>
-            <span class="section-summary">{{ tunnelStore.nodes.length }} 个节点</span>
-          </div>
-          <div class="node-list">
-            <button
-              :class="['node-btn', { active: tunnelStore.selectedNode === 'all' }]"
-              type="button"
-              @click="tunnelStore.selectNode('all')"
-            >
-              全部节点
-            </button>
-            <button
-              v-for="node in tunnelStore.nodes"
-              :key="node.id"
-              :class="['node-btn', { active: tunnelStore.selectedNode === node.id }]"
-              type="button"
-              @click="tunnelStore.selectNode(node.id)"
-            >
-              {{ node.name }}
-            </button>
-          </div>
-        </section>
-
         <GpuLoadPanel
           :nodes="tunnelStore.gpuNodes"
           :summary="tunnelStore.gpuSummary"
@@ -255,7 +230,8 @@ function handleLogout() {
 async function loadData() {
   await Promise.all([
     tunnelStore.fetchNodes(),
-    tunnelStore.fetchGpuStatus()
+    tunnelStore.fetchGpuStatus(),
+    tunnelStore.fetchNodeStatusHistory()
   ])
   const errors = await tunnelStore.restoreSavedAccesses()
   tableNotice.value = errors.length ? errors.join('；') : ''
@@ -390,35 +366,12 @@ onMounted(async () => {
   color: var(--color-text-muted);
 }
 
-/* ── Node List ── */
-.node-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 12px 16px;
-}
-
-.node-btn {
-  padding: 6px 14px;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  border: 1px solid var(--color-border-subtle);
-  background: var(--color-surface);
-  color: var(--color-text);
-  transition: all var(--transition-fast);
-  cursor: pointer;
-}
-
-.node-btn:hover:not(.active) {
-  border-color: var(--color-border-strong);
-  background: var(--color-surface-alt);
-}
-
-.node-btn.active {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: #fff;
+/* ── Docs Button ── */
+.docs-btn {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 /* ── Create Form ── */

@@ -17,6 +17,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/docs',
+      name: 'Docs',
+      component: () => import('@/pages/DocsPage.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       // Catch-all → redirect to dashboard or login
       path: '/:pathMatch(.*)*',
       redirect: '/'

@@ -49,6 +49,18 @@ def init_node_status_store() -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS daily_node_status (
+                node_id TEXT NOT NULL,
+                date TEXT NOT NULL,
+                online INTEGER NOT NULL DEFAULT 0,
+                checks_total INTEGER NOT NULL DEFAULT 0,
+                checks_ok INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (node_id, date)
+            )
+            """
+        )
         connection.commit()
 
 
@@ -80,6 +92,7 @@ def update_node_health(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     init_node_status_store()
     now = _utc_now()
     now_text = _iso(now)
+    today_text = now.strftime("%Y-%m-%d")
     rows: list[dict[str, Any]] = []
 
     with sqlite3.connect(DATABASE_PATH) as connection:
@@ -149,6 +162,19 @@ def update_node_health(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     now_text,
                 ),
             )
+
+            # Record daily status snapshot
+            connection.execute(
+                """
+                INSERT INTO daily_node_status (node_id, date, online, checks_total, checks_ok)
+                VALUES (?, ?, ?, 1, ?)
+                ON CONFLICT(node_id, date) DO UPDATE SET
+                    online = CASE WHEN excluded.online = 1 THEN 1 ELSE daily_node_status.online END,
+                    checks_total = daily_node_status.checks_total + 1,
+                    checks_ok = daily_node_status.checks_ok + excluded.checks_ok
+                """,
+                (node_id, today_text, 1 if online else 0, 1 if online else 0),
+            )
         connection.commit()
 
     configured = [
@@ -212,4 +238,79 @@ def list_node_health(configured_nodes: list[dict[str, str]] | None = None) -> li
                 "last_ok_at": row["last_ok_at"],
             }
         )
+    return result
+
+
+def list_node_health_history(
+    configured_nodes: list[dict[str, str]] | None = None,
+    days: int = 30,
+) -> dict[str, list[dict[str, Any]]]:
+    """Return per-node daily status for the last `days` days.
+
+    Returns a dict keyed by node_id, each value is a list of
+    {date, online, checks_total, checks_ok} dicts sorted ascending by date.
+    Days with no data get online=False, checks_total=0, checks_ok=0.
+    """
+    from datetime import timedelta
+
+    init_node_status_store()
+    now = _utc_now()
+    configured_nodes = configured_nodes or []
+    node_ids = [
+        str(node.get("node_id") or node.get("id") or "")
+        for node in configured_nodes
+        if str(node.get("node_id") or node.get("id") or "")
+    ]
+
+    # Build date range
+    date_range: list[str] = []
+    for i in range(days - 1, -1, -1):
+        d = now - timedelta(days=i)
+        date_range.append(d.strftime("%Y-%m-%d"))
+
+    start_date = date_range[0]
+    result: dict[str, list[dict[str, Any]]] = {}
+
+    with sqlite3.connect(DATABASE_PATH) as connection:
+        connection.row_factory = sqlite3.Row
+        # Fetch all daily records in the window
+        if node_ids:
+            placeholders = ",".join("?" for _ in node_ids)
+            rows = connection.execute(
+                f"SELECT * FROM daily_node_status WHERE node_id IN ({placeholders}) AND date >= ? ORDER BY date",
+                (*node_ids, start_date),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                "SELECT * FROM daily_node_status WHERE date >= ? ORDER BY date",
+                (start_date,),
+            ).fetchall()
+
+    # Index by (node_id, date)
+    by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in rows:
+        nid = str(row["node_id"])
+        by_key[(nid, str(row["date"]))] = {
+            "date": str(row["date"]),
+            "online": bool(row["online"]),
+            "checks_total": int(row["checks_total"]),
+            "checks_ok": int(row["checks_ok"]),
+        }
+        if nid not in node_ids:
+            node_ids.append(nid)
+
+    for nid in node_ids:
+        entries: list[dict[str, Any]] = []
+        for d in date_range:
+            if (nid, d) in by_key:
+                entries.append(by_key[(nid, d)])
+            else:
+                entries.append({
+                    "date": d,
+                    "online": False,
+                    "checks_total": 0,
+                    "checks_ok": 0,
+                })
+        result[nid] = entries
+
     return result
