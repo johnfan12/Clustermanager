@@ -38,6 +38,7 @@ export async function request<T = unknown>(
   const { body, skipAuth, headers: extraHeaders, ...rest } = options
 
   const headers: Record<string, string> = {
+    'X-Requested-With': 'XMLHttpRequest',
     ...(extraHeaders as Record<string, string>)
   }
 

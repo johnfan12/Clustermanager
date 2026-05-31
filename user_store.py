@@ -158,7 +158,6 @@ def authenticate_account_user(username: str, password: str) -> Principal:
         raise HTTPException(status_code=401, detail="Invalid username or password.")
     return Principal(username=str(row[0]), is_admin=bool(row[2]))
 
-
 def account_user_exists(username: str) -> bool:
     """Return whether a console account exists."""
     init_user_store()
@@ -168,3 +167,14 @@ def account_user_exists(username: str) -> bool:
             (username.strip(),),
         ).fetchone()
     return row is not None
+
+
+def account_user_is_admin(username: str) -> bool:
+    """Return whether a console account has admin privileges."""
+    init_user_store()
+    with sqlite3.connect(DATABASE_PATH) as connection:
+        row = connection.execute(
+            "SELECT is_admin FROM console_users WHERE username = ?",
+            (username.strip(),),
+        ).fetchone()
+    return bool(row[0]) if row else False

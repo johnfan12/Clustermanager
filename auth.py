@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import grp
+import logging
 import os
 import pwd
+import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -12,9 +14,25 @@ from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 
-JWT_SECRET = os.environ.get("SIMPLE_JWT_SECRET") or os.environ.get(
-    "JWT_SECRET", "change-this-simple-secret"
-)
+_auth_logger = logging.getLogger(__name__)
+
+
+def _resolve_secret(env_names: list[str], label: str) -> str:
+    """Read a secret from environment variables, falling back to an ephemeral random value."""
+    for name in env_names:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    fallback = secrets.token_hex(32)
+    _auth_logger.warning(
+        "%s not configured! Generated ephemeral secret. "
+        "Tokens will be invalidated on restart and cannot be shared across instances.",
+        label,
+    )
+    return fallback
+
+
+JWT_SECRET = _resolve_secret(["SIMPLE_JWT_SECRET", "JWT_SECRET"], "JWT_SECRET")
 JWT_ALGORITHM = os.environ.get("SIMPLE_JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_HOURS = int(os.environ.get("SIMPLE_JWT_EXPIRE_HOURS", "24"))
 PAM_SERVICE = os.environ.get("SIMPLE_PAM_SERVICE", "login")

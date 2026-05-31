@@ -11,14 +11,18 @@ from typing import Any
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, field_validator
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from auth import (
     Principal,
+    _resolve_secret,
     authenticate_local_user,
     create_access_token,
     decode_access_token,
@@ -27,6 +31,7 @@ from auth import (
 from node_status_store import init_node_status_store, list_node_health, list_node_health_history, update_node_health
 from user_store import (
     account_user_exists,
+    account_user_is_admin,
     authenticate_account_user,
     create_account_user,
     init_user_store,
@@ -49,8 +54,9 @@ logging.basicConfig(
 LOGGER = logging.getLogger("simple_clustermanager")
 
 APP_DISPLAY_NAME = os.environ.get("SIMPLE_APP_DISPLAY_NAME", "简化服务器管理")
-INTERNAL_SERVICE_TOKEN = os.environ.get("SIMPLE_INTERNAL_SERVICE_TOKEN") or os.environ.get(
-    "INTERNAL_SERVICE_TOKEN", "change-this-internal-service-token"
+INTERNAL_SERVICE_TOKEN = _resolve_secret(
+    ["SIMPLE_INTERNAL_SERVICE_TOKEN", "INTERNAL_SERVICE_TOKEN"],
+    "INTERNAL_SERVICE_TOKEN",
 )
 REQUEST_TIMEOUT = float(os.environ.get("SIMPLE_NODE_REQUEST_TIMEOUT", "12"))
 AUTH_MODE = os.environ.get("SIMPLE_AUTH_MODE", "account").strip().lower()
@@ -517,7 +523,11 @@ def get_console_principal(
         principal = decode_access_token(credentials, require_local_user=False)
         if not account_user_exists(principal.username):
             raise HTTPException(status_code=401, detail="Account no longer exists.")
-        return principal
+        # Re-verify is_admin from database, do not trust the JWT claim.
+        return Principal(
+            username=principal.username,
+            is_admin=account_user_is_admin(principal.username),
+        )
     if AUTH_MODE == "node":
         return decode_access_token(credentials, require_local_user=False)
     return get_current_principal(credentials)
@@ -571,14 +581,39 @@ def _frontend_response(requested_path: str = "index.html") -> FileResponse:
     )
 
 
+limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title=APP_DISPLAY_NAME, version="0.1.0")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ALLOW_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
 )
+
+
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
+
+
+class CSRFHeaderMiddleware(BaseHTTPMiddleware):
+    """Require X-Requested-With on state-changing requests as CSRF defense."""
+
+    _UNSAFE_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
+
+    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
+        if request.method in self._UNSAFE_METHODS:
+            if not request.headers.get("x-requested-with"):
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Missing X-Requested-With header."},
+                )
+        return await call_next(request)
+
+
+app.add_middleware(CSRFHeaderMiddleware)
 
 
 @app.get("/api/health")
@@ -604,7 +639,8 @@ def frontend_config() -> dict[str, Any]:
 
 
 @app.post("/api/login")
-async def login(payload: LoginRequest) -> dict[str, Any]:
+@limiter.limit("5/minute")
+async def login(request: Request, payload: LoginRequest) -> dict[str, Any]:
     principal = await _authenticate_console_user(payload.username, payload.password)
     return {
         "access_token": create_access_token(principal),
@@ -617,7 +653,8 @@ async def login(payload: LoginRequest) -> dict[str, Any]:
 
 
 @app.post("/api/register")
-def register(payload: RegisterRequest) -> dict[str, Any]:
+@limiter.limit("3/minute")
+def register(request: Request, payload: RegisterRequest) -> dict[str, Any]:
     if AUTH_MODE != "account":
         raise HTTPException(status_code=400, detail="Registration is only available in account auth mode.")
     if not ALLOW_REGISTER:
