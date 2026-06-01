@@ -8,6 +8,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from dotenv import load_dotenv
@@ -59,6 +60,8 @@ INTERNAL_SERVICE_TOKEN = _resolve_secret(
     "INTERNAL_SERVICE_TOKEN",
 )
 REQUEST_TIMEOUT = float(os.environ.get("SIMPLE_NODE_REQUEST_TIMEOUT", "12"))
+SSH_DISCOVERY_TIMEOUT = float(os.environ.get("SIMPLE_SSH_DISCOVERY_TIMEOUT", "3"))
+SSH_CHECK_TIMEOUT = float(os.environ.get("SIMPLE_SSH_CHECK_TIMEOUT", "3"))
 AUTH_MODE = os.environ.get("SIMPLE_AUTH_MODE", "account").strip().lower()
 AUTH_REQUIRED = AUTH_MODE != "none"
 ALLOW_REGISTER = os.environ.get("SIMPLE_ALLOW_REGISTER", "true").lower() == "true"
@@ -131,6 +134,15 @@ def _as_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _as_optional_int(value: Any) -> int | None:
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _as_float(value: Any) -> float | None:
     try:
         if value is None or value == "":
@@ -138,6 +150,73 @@ def _as_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _normalize_connect_host(value: Any) -> str:
+    candidate = str(value or "").strip()
+    if not candidate:
+        return ""
+    if "://" in candidate:
+        parsed = urlparse(candidate)
+        candidate = parsed.hostname or parsed.netloc or candidate
+    candidate = candidate.split("/", 1)[0]
+    if candidate.startswith("[") and "]" in candidate:
+        return candidate[1:candidate.index("]")]
+    if candidate.count(":") == 1:
+        host, port = candidate.rsplit(":", 1)
+        if port.isdigit():
+            return host
+    return candidate
+
+
+def _host_port_from_value(value: Any) -> tuple[str, int | None]:
+    candidate = str(value or "").strip()
+    if not candidate:
+        return ("", None)
+    if "://" in candidate:
+        parsed = urlparse(candidate)
+        return (parsed.hostname or "", parsed.port)
+    candidate = candidate.split("/", 1)[0]
+    if candidate.startswith("[") and "]" in candidate:
+        host = candidate[1:candidate.index("]")]
+        remainder = candidate[candidate.index("]") + 1:]
+        if remainder.startswith(":") and remainder[1:].isdigit():
+            return (host, int(remainder[1:]))
+        return (host, None)
+    if candidate.count(":") == 1:
+        host, port = candidate.rsplit(":", 1)
+        if port.isdigit():
+            return (host, int(port))
+    return (candidate, None)
+
+
+def _node_ssh_host(config: dict[str, Any]) -> str:
+    host, _ = _host_port_from_value(
+        config.get("ssh_host")
+        or config.get("ssh_public_host")
+        or config.get("public_host")
+        or config.get("host")
+        or ""
+    )
+    return _normalize_connect_host(host)
+
+
+def _node_ssh_port(config: dict[str, Any]) -> int | None:
+    explicit_port = _as_optional_int(
+        config.get("ssh_port")
+        or config.get("ssh_remote_port")
+        or config.get("remote_port")
+    )
+    if explicit_port is not None:
+        return explicit_port
+    _, embedded_port = _host_port_from_value(
+        config.get("ssh_host")
+        or config.get("ssh_public_host")
+        or config.get("public_host")
+        or config.get("host")
+        or ""
+    )
+    return embedded_port
 
 
 def _load_nodes() -> list[dict[str, Any]]:
@@ -163,6 +242,8 @@ def _load_nodes() -> list[dict[str, Any]]:
                     "name": str(config.get("name") or node_id),
                     "api": api.rstrip("/"),
                     "public_host": str(config.get("public_host") or config.get("host") or ""),
+                    "ssh_host": _node_ssh_host(config),
+                    "ssh_port": _node_ssh_port(config),
                     "gpu_count": _as_int(config.get("gpu_count"), 0),
                     "gpu_model": str(config.get("gpu_model") or ""),
                 }
@@ -181,6 +262,8 @@ def _load_nodes() -> list[dict[str, Any]]:
                     "name": str(config.get("name") or node_id),
                     "api": api.rstrip("/"),
                     "public_host": str(config.get("public_host") or config.get("host") or ""),
+                    "ssh_host": _node_ssh_host(config),
+                    "ssh_port": _node_ssh_port(config),
                     "gpu_count": _as_int(config.get("gpu_count"), 0),
                     "gpu_model": str(config.get("gpu_model") or ""),
                 }
@@ -195,6 +278,12 @@ def _load_nodes() -> list[dict[str, Any]]:
             "name": os.environ.get("SIMPLE_NODE_NAME", "节点 1"),
             "api": os.environ.get("SIMPLE_NODE_API", "http://127.0.0.1:18881").rstrip("/"),
             "public_host": os.environ.get("SIMPLE_PUBLIC_HOST", ""),
+            "ssh_host": _normalize_connect_host(
+                os.environ.get("SIMPLE_SSH_HOST") or os.environ.get("SIMPLE_PUBLIC_HOST", "")
+            ),
+            "ssh_port": _as_optional_int(
+                os.environ.get("SIMPLE_SSH_PORT") or os.environ.get("SIMPLE_SSH_REMOTE_PORT")
+            ),
             "gpu_count": _as_int(os.environ.get("SIMPLE_NODE_GPU_COUNT"), 0),
             "gpu_model": os.environ.get("SIMPLE_NODE_GPU_MODEL", ""),
         }
@@ -206,8 +295,16 @@ NODES_BY_ID = {node["id"]: node for node in NODES}
 AUTH_NODE_ID = os.environ.get("SIMPLE_AUTH_NODE_ID", NODES[0]["id"] if NODES else "")
 
 
-def _configured_node_health_inputs() -> list[dict[str, str]]:
-    return [{"node_id": str(node["id"]), "name": str(node["name"])} for node in NODES]
+def _configured_node_health_inputs() -> list[dict[str, Any]]:
+    return [
+        {
+            "node_id": str(node["id"]),
+            "name": str(node["name"]),
+            "ssh_host": str(node.get("ssh_host") or ""),
+            "ssh_port": node.get("ssh_port"),
+        }
+        for node in NODES
+    ]
 
 
 def _public_node(node: dict[str, Any]) -> dict[str, Any]:
@@ -215,6 +312,8 @@ def _public_node(node: dict[str, Any]) -> dict[str, Any]:
         "id": node["id"],
         "name": node["name"],
         "public_host": node.get("public_host", ""),
+        "ssh_host": node.get("ssh_host", ""),
+        "ssh_port": node.get("ssh_port"),
         "gpu_count": _as_int(node.get("gpu_count"), 0),
         "gpu_model": str(node.get("gpu_model") or ""),
     }
@@ -255,6 +354,99 @@ def _extract_node_error(response: httpx.Response) -> str:
             return json.dumps(detail, ensure_ascii=False)
     text = response.text.strip()
     return text or "Node request failed."
+
+
+async def _fetch_node_api_health(
+    client: httpx.AsyncClient,
+    node: dict[str, Any],
+) -> dict[str, Any] | None:
+    try:
+        response = await client.get(
+            f"{node['api']}/api/health",
+            timeout=SSH_DISCOVERY_TIMEOUT,
+        )
+    except httpx.RequestError:
+        return None
+    if response.status_code >= 400:
+        return None
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _resolve_ssh_target(
+    node: dict[str, Any],
+    health_payload: dict[str, Any] | None,
+) -> dict[str, Any]:
+    ssh_meta = health_payload.get("ssh") if isinstance(health_payload, dict) else None
+    if not isinstance(ssh_meta, dict):
+        ssh_meta = {}
+
+    enabled = ssh_meta.get("enabled")
+    status = str(ssh_meta.get("status") or "")
+    host = str(node.get("ssh_host") or "").strip()
+    port = _as_optional_int(node.get("ssh_port"))
+
+    if not host and health_payload:
+        host = _normalize_connect_host(health_payload.get("public_host"))
+    if port is None:
+        port = _as_optional_int(ssh_meta.get("remote_port"))
+    if not host:
+        host = _normalize_connect_host(node.get("public_host"))
+
+    return {
+        "host": host,
+        "port": port,
+        "enabled": enabled,
+        "frp_status": status,
+    }
+
+
+async def _check_ssh_connectivity(
+    node: dict[str, Any],
+    health_payload: dict[str, Any] | None,
+) -> dict[str, Any]:
+    target = _resolve_ssh_target(node, health_payload)
+    host = str(target.get("host") or "").strip()
+    port = _as_optional_int(target.get("port"))
+    enabled = target.get("enabled")
+    frp_status = str(target.get("frp_status") or "")
+
+    result: dict[str, Any] = {
+        "checked": False,
+        "online": False,
+        "host": host,
+        "port": port,
+        "frp_status": frp_status,
+        "error": "",
+    }
+
+    if enabled is False:
+        result.update({"checked": True, "error": "SSH tunnel is disabled on this node."})
+        return result
+
+    if not host or port is None:
+        result["error"] = "SSH host or port is not configured."
+        return result
+
+    result["checked"] = True
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, int(port)),
+            timeout=SSH_CHECK_TIMEOUT,
+        )
+        writer.close()
+        await writer.wait_closed()
+        del reader
+    except (OSError, asyncio.TimeoutError) as exc:
+        status_note = f" FRP status: {frp_status}." if frp_status else ""
+        result["error"] = f"SSH {host}:{port} is unavailable: {exc}.{status_note}"
+        return result
+
+    result["online"] = True
+    return result
 
 
 async def _node_request(
@@ -375,6 +567,7 @@ async def _fetch_node_gpu_load(
         "node_id": node_id,
         "name": str(node["name"]),
         "online": False,
+        "api_online": False,
         "gpu_model": configured_gpu_model,
         "gpu_total": configured_gpu_count,
         "gpu_free": 0,
@@ -388,7 +581,22 @@ async def _fetch_node_gpu_load(
         "instance_count": 0,
         "gpus": [],
         "error": "",
+        "ssh": {
+            "checked": False,
+            "online": False,
+            "host": str(node.get("ssh_host") or ""),
+            "port": node.get("ssh_port"),
+            "frp_status": "",
+            "error": "",
+        },
     }
+
+    health_task = asyncio.create_task(_fetch_node_api_health(client, node))
+
+    async def with_ssh_status() -> dict[str, Any]:
+        health_payload = await health_task
+        result["ssh"] = await _check_ssh_connectivity(node, health_payload)
+        return result
 
     try:
         response = await client.get(
@@ -397,17 +605,17 @@ async def _fetch_node_gpu_load(
         )
     except httpx.RequestError as exc:
         result["error"] = f"{node['name']} is unavailable: {exc}"
-        return result
+        return await with_ssh_status()
 
     if response.status_code >= 400:
         result["error"] = f"{node['name']}: {_extract_node_error(response)}"
-        return result
+        return await with_ssh_status()
 
     try:
         payload = response.json()
     except ValueError:
         result["error"] = f"{node['name']} returned invalid GPU JSON."
-        return result
+        return await with_ssh_status()
 
     gpus = [_normalize_gpu_status(gpu) for gpu in _extract_gpu_list(payload)]
     gpu_total = len(gpus) if gpus else configured_gpu_count
@@ -452,6 +660,7 @@ async def _fetch_node_gpu_load(
     result.update(
         {
             "online": True,
+            "api_online": True,
             "gpu_model": gpu_model,
             "gpu_total": gpu_total,
             "gpu_free": gpu_free,
@@ -465,7 +674,7 @@ async def _fetch_node_gpu_load(
             "gpus": gpus,
         }
     )
-    return result
+    return await with_ssh_status()
 
 
 async def _authenticate_node_user(username: str, password: str) -> Principal:

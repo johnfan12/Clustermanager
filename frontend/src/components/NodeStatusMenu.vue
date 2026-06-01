@@ -12,7 +12,7 @@
     <div v-if="open" class="status-popover">
       <div class="status-popover-head">
         <strong>节点状态</strong>
-        <span>{{ healthyCount }}/{{ nodes.length }} 在线</span>
+        <span>{{ apiHealthyCount }}/{{ nodes.length }} API · {{ sshSummaryText }}</span>
       </div>
 
       <div class="status-list">
@@ -20,25 +20,33 @@
         <article
           v-for="node in nodes"
           :key="node.node_id"
-          :class="['status-item', node.online ? 'online' : 'offline']"
+          :class="['status-item', nodeHasIssue(node) ? 'offline' : 'online']"
         >
           <div class="status-item-main">
             <span class="item-dot" />
             <strong>{{ node.name || node.node_id }}</strong>
+            <div class="service-pills">
+              <span :class="['service-pill', node.online ? 'ok' : 'bad']">
+                API {{ node.online ? '在线' : '离线' }}
+              </span>
+              <span :class="['service-pill', sshStatusClass(node)]">
+                {{ sshLabel(node) }}
+              </span>
+            </div>
           </div>
           <div class="status-item-detail">
-            <template v-if="node.online">
-              uptime {{ formatDuration(node.uptime_seconds) }}
-            </template>
-            <template v-else>
-              issue {{ formatDuration(node.issue_seconds) }}
-            </template>
+            <span>API {{ apiDetail(node) }}</span>
+            <span>SSH {{ sshDetail(node) }}</span>
           </div>
-          <div v-if="!node.online" class="issue-text">{{ node.issue || 'Node is offline.' }}</div>
+          <div v-if="sshTarget(node)" class="ssh-target">SSH {{ sshTarget(node) }}</div>
+          <div v-if="!node.online" class="issue-text">API: {{ node.issue || 'Node is offline.' }}</div>
+          <div v-if="node.ssh_checked && !node.ssh_online" class="issue-text">
+            SSH: {{ node.ssh_issue || 'SSH is offline.' }}
+          </div>
 
           <!-- 30-day uptime grid -->
           <div class="uptime-grid-wrap">
-            <div class="uptime-grid-label">过去 30 天</div>
+            <div class="uptime-grid-label">API 过去 30 天</div>
             <div class="uptime-grid">
               <div
                 v-for="(day, idx) in getNodeHistory(node.node_id)"
@@ -69,9 +77,18 @@ const props = defineProps<{
 
 const open = ref(false)
 
-const healthyCount = computed(() => props.nodes.filter((node) => node.online).length)
-const issueCount = computed(() => props.nodes.filter((node) => !node.online).length)
+const apiHealthyCount = computed(() => props.nodes.filter((node) => node.online).length)
+const sshCheckedCount = computed(() => props.nodes.filter((node) => node.ssh_checked).length)
+const sshHealthyCount = computed(
+  () => props.nodes.filter((node) => node.ssh_checked && node.ssh_online).length
+)
+const issueCount = computed(() => props.nodes.filter((node) => nodeHasIssue(node)).length)
 const hasIssues = computed(() => issueCount.value > 0)
+const sshSummaryText = computed(() => {
+  if (!props.nodes.length) return 'SSH —'
+  if (!sshCheckedCount.value) return 'SSH 未检查'
+  return `${sshHealthyCount.value}/${sshCheckedCount.value} SSH`
+})
 const triggerText = computed(() => {
   if (!props.nodes.length) return '状态'
   return hasIssues.value ? `状态 ${issueCount.value}` : '状态正常'
@@ -94,6 +111,36 @@ function dayTooltip(day: DailyNodeStatus): string {
   if (pct === 100) return `${day.date}\n全天正常`
   if (pct === 0) return `${day.date}\n全天异常`
   return `${day.date}\n正常率 ${pct}% (${day.checks_ok}/${day.checks_total})`
+}
+
+function nodeHasIssue(node: NodeHealth): boolean {
+  return !node.online || Boolean(node.ssh_checked && !node.ssh_online)
+}
+
+function apiDetail(node: NodeHealth): string {
+  if (node.online) return `uptime ${formatDuration(node.uptime_seconds)}`
+  return `issue ${formatDuration(node.issue_seconds)}`
+}
+
+function sshStatusClass(node: NodeHealth): string {
+  if (!node.ssh_checked) return 'unknown'
+  return node.ssh_online ? 'ok' : 'bad'
+}
+
+function sshLabel(node: NodeHealth): string {
+  if (!node.ssh_checked) return 'SSH 未检查'
+  return node.ssh_online ? 'SSH 在线' : 'SSH 离线'
+}
+
+function sshDetail(node: NodeHealth): string {
+  if (!node.ssh_checked) return '未检查'
+  if (node.ssh_online) return `uptime ${formatDuration(node.ssh_uptime_seconds)}`
+  return `issue ${formatDuration(node.ssh_issue_seconds)}`
+}
+
+function sshTarget(node: NodeHealth): string {
+  if (!node.ssh_host || !node.ssh_port) return ''
+  return `${node.ssh_host}:${node.ssh_port}`
 }
 
 function formatDuration(seconds: number | null | undefined) {
@@ -204,6 +251,7 @@ function formatDuration(seconds: number | null | undefined) {
   align-items: center;
   gap: 8px;
   font-size: var(--font-size-sm);
+  flex-wrap: wrap;
 }
 
 .status-item.online .item-dot {
@@ -216,7 +264,55 @@ function formatDuration(seconds: number | null | undefined) {
 
 .status-item-detail {
   padding-left: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
   color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.service-pills {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.service-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 7px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.service-pill.ok {
+  border-color: var(--color-success-border);
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.service-pill.bad {
+  border-color: var(--color-danger-border);
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.service-pill.unknown {
+  border-color: var(--color-border-subtle);
+  color: var(--color-text-muted);
+}
+
+.ssh-target {
+  padding-left: 16px;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
   font-size: var(--font-size-xs);
 }
 

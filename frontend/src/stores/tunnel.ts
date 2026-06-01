@@ -14,6 +14,8 @@ export interface NodeInfo {
   id: string
   name: string
   public_host: string
+  ssh_host?: string
+  ssh_port?: number | null
   gpu_count?: number
   gpu_model?: string
 }
@@ -83,6 +85,14 @@ export interface NodeHealth {
   issue_seconds: number | null
   last_seen_at: string | null
   last_ok_at: string | null
+  ssh_checked?: boolean
+  ssh_online?: boolean
+  ssh_uptime_seconds?: number | null
+  ssh_issue?: string
+  ssh_issue_seconds?: number | null
+  ssh_last_ok_at?: string | null
+  ssh_host?: string
+  ssh_port?: number | null
 }
 
 export interface GpuSummary {

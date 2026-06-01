@@ -79,7 +79,7 @@
             <div class="feature-card">
               <div class="feature-icon">🟢</div>
               <h4>节点状态</h4>
-              <p>右上角状态按钮可查看所有节点在线/离线状态，以及过去 30 天的运行状况图表。</p>
+              <p>右上角状态按钮可查看所有节点 API 与 SSH 在线/离线状态，以及过去 30 天的运行状况图表。</p>
             </div>
           </div>
         </section>
@@ -167,10 +167,10 @@
             弹出节点状态面板，查看：
           </p>
           <ul>
-            <li><strong>在线状态：</strong>绿色圆点表示在线，红色圆点表示离线</li>
-            <li><strong>运行时间：</strong>在线节点显示 uptime，离线节点显示 issue 持续时间</li>
+            <li><strong>在线状态：</strong>面板会分别展示 API 与 SSH 状态，绿色表示在线，红色表示离线</li>
+            <li><strong>运行时间：</strong>在线服务显示 uptime，离线服务显示 issue 持续时间</li>
             <li>
-              <strong>30 天运行图：</strong>彩色方格显示过去 30 天每天的状态
+              <strong>30 天运行图：</strong>彩色方格显示过去 30 天每天的 API 状态
               <div class="legend-inline">
                 <span class="legend-item"><span class="legend-cell all-ok"></span> 全天正常</span>
                 <span class="legend-item"><span class="legend-cell partial"></span> 部分异常</span>
@@ -186,8 +186,8 @@
           <div class="faq-item">
             <h4>Q: SSH 命令生成后提示连接失败？</h4>
             <p>
-              A: 请确认目标节点处于 <strong>在线</strong> 状态（查看节点状态面板）。
-              如果节点离线，SSH 隧道将无法建立。
+              A: 请确认目标节点的 <strong>SSH</strong> 状态处于在线（查看节点状态面板）。
+              如果 API 在线但 SSH 离线，通常需要检查节点 SSH 服务、FRP SSH 端口或 VPS 防火墙。
             </p>
           </div>
           <div class="faq-item">

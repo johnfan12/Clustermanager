@@ -68,6 +68,8 @@ SIMPLE_NODES_JSON='{
     "name": "节点 1",
     "api": "http://127.0.0.1:18881",
     "public_host": "vps.example.com",
+    "ssh_host": "vps.example.com",
+    "ssh_port": 30000,
     "gpu_count": 1,
     "gpu_model": "RTX 4090"
   }
@@ -85,6 +87,8 @@ SIMPLE_FRONTEND_DIST_DIR=frontend/dist
 如果节点 API 通过 FRP 暴露到 VPS，例如节点侧 `SIMPLE_API_REMOTE_PORT=18881`，这里的节点地址可以直接写 `http://127.0.0.1:18881`。
 
 GPU 负载面板会请求每个节点的 `/api/gpus/status`；`gpu_count` 和 `gpu_model` 用作节点离线或未返回详情时的兜底展示。
+
+节点状态面板会同时检查 API 与 SSH 连通性。`ssh_host` 和 `ssh_port` 可显式配置 SSH 公网入口；如果没有配置，控制台会在节点 API 可达时从节点 `/api/health` 自动发现固定 SSH 端口。若希望 API 离线时仍能显示 SSH 是否在线，建议在 `SIMPLE_NODES_JSON` 中配置 `ssh_port`。
 
 ## 登录模式
 
