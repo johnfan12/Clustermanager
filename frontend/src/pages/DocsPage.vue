@@ -163,7 +163,7 @@
         <section id="status" class="doc-section">
           <h2>节点状态与运行历史</h2>
           <p>
-            点击右上角的 <strong>「状态正常」</strong> 或 <strong>「状态 N」</strong> 按钮，
+            点击右上角的 <strong>「节点状态：正常」</strong>、<strong>「节点状态：部分正常」</strong> 或 <strong>「节点状态：异常」</strong> 按钮，
             弹出节点状态面板，查看：
           </p>
           <ul>

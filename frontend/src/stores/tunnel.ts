@@ -252,16 +252,15 @@ export const useTunnelStore = defineStore('tunnel', () => {
     return access
   }
 
-  async function restoreSavedAccesses(): Promise<string[]> {
+  async function restoreSavedAccesses(): Promise<void> {
     const saved = readSavedAccesses()
     if (!saved.length) {
       tunnels.value = []
-      return []
+      return
     }
 
     const validNodeIds = new Set(nodes.value.map((n) => n.id))
     const restored: SshAccess[] = []
-    const errors: string[] = []
 
     for (const item of saved) {
       if (!validNodeIds.has(item.node_id)) continue
@@ -269,12 +268,13 @@ export const useTunnelStore = defineStore('tunnel', () => {
         const access = await fetchSshAccess(item.node_id, item.user_id)
         if (access) restored.push(access)
       } catch (e: unknown) {
-        errors.push((e as Error).message)
+        // Saved commands are convenience data; unavailable nodes should not
+        // show noisy restore errors beside the SSH command table.
+        void e
       }
     }
 
     tunnels.value = restored
-    return errors
   }
 
   function selectNode(nodeId: string) {

@@ -68,7 +68,6 @@
         <section class="section">
           <div class="section-header">
             <h2>SSH 命令</h2>
-            <span v-if="tableNotice" :class="['notice', { error: tableNoticeIsError }]">{{ tableNotice }}</span>
           </div>
           <div class="table-wrap">
             <table>
@@ -157,8 +156,6 @@ const sshUserId = ref('')
 
 const formNotice = ref('')
 const formNoticeIsError = ref(false)
-const tableNotice = ref('')
-const tableNoticeIsError = ref(false)
 
 function sshCommand(tunnel: SshAccess): string {
   return tunnel.ssh_command || `ssh -p ${tunnel.remote_port} ${tunnel.owner}@${tunnel.public_host}`
@@ -195,14 +192,7 @@ async function handleCreateAccess() {
       throw new Error('节点未返回 SSH 命令')
     }
     tunnelStore.rememberAccess(createNodeId.value, sshUserId.value)
-    const errors = await tunnelStore.restoreSavedAccesses()
-    if (errors.length) {
-      tableNotice.value = errors.join('；')
-      tableNoticeIsError.value = true
-    } else {
-      tableNotice.value = ''
-      tableNoticeIsError.value = false
-    }
+    await tunnelStore.restoreSavedAccesses()
     formNotice.value = '已生成 SSH 命令'
     formNoticeIsError.value = false
   } catch (e: unknown) {
@@ -233,9 +223,7 @@ async function loadData() {
     tunnelStore.fetchGpuStatus(),
     tunnelStore.fetchNodeStatusHistory()
   ])
-  const errors = await tunnelStore.restoreSavedAccesses()
-  tableNotice.value = errors.length ? errors.join('；') : ''
-  tableNoticeIsError.value = errors.length > 0
+  await tunnelStore.restoreSavedAccesses()
 
   // Set default selected node for create form
   if (!createNodeId.value && tunnelStore.nodes.length > 0) {

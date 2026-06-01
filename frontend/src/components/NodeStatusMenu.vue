@@ -1,7 +1,7 @@
 <template>
   <div class="status-menu">
     <button
-      :class="['status-trigger', hasIssues ? 'issue' : 'ok']"
+      :class="['status-trigger', overallStatus]"
       type="button"
       @click="open = !open"
     >
@@ -82,8 +82,14 @@ const sshCheckedCount = computed(() => props.nodes.filter((node) => node.ssh_che
 const sshHealthyCount = computed(
   () => props.nodes.filter((node) => node.ssh_checked && node.ssh_online).length
 )
-const issueCount = computed(() => props.nodes.filter((node) => nodeHasIssue(node)).length)
-const hasIssues = computed(() => issueCount.value > 0)
+const serviceTotalCount = computed(() => props.nodes.length * 2)
+const serviceHealthyCount = computed(() => apiHealthyCount.value + sshHealthyCount.value)
+const overallStatus = computed(() => {
+  if (!props.nodes.length) return 'unknown'
+  if (serviceHealthyCount.value === serviceTotalCount.value) return 'normal'
+  if (serviceHealthyCount.value === 0) return 'abnormal'
+  return 'partial'
+})
 const sshSummaryText = computed(() => {
   if (!props.nodes.length) return 'SSH —'
   if (!sshCheckedCount.value) return 'SSH 未检查'
@@ -91,7 +97,9 @@ const sshSummaryText = computed(() => {
 })
 const triggerText = computed(() => {
   if (!props.nodes.length) return '状态'
-  return hasIssues.value ? `状态 ${issueCount.value}` : '状态正常'
+  if (overallStatus.value === 'normal') return '节点状态：正常'
+  if (overallStatus.value === 'partial') return '节点状态：部分正常'
+  return '节点状态：异常'
 })
 
 function getNodeHistory(nodeId: string): DailyNodeStatus[] {
@@ -177,12 +185,23 @@ function formatDuration(seconds: number | null | undefined) {
   cursor: pointer;
 }
 
-.status-trigger.ok {
+.status-trigger.normal {
   border-color: var(--color-success-border);
   color: var(--color-success);
 }
 
-.status-trigger.issue {
+.status-trigger.partial {
+  border-color: var(--color-warning);
+  background: var(--color-warning-bg);
+  color: #7a4f00;
+}
+
+.status-trigger.unknown {
+  border-color: var(--color-border-subtle);
+  color: var(--color-text-muted);
+}
+
+.status-trigger.abnormal {
   border-color: var(--color-danger-border);
   color: var(--color-danger);
 }
